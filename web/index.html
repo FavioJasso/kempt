@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kempt: messy spreadsheets to clean SQL</title>
+<meta name="description" content="kempt finds the real table inside a messy spreadsheet, types every column, and explains every decision.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M8 9h16M8 16h16M8 23h16M13 6v20' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>kempt</h1>
+      <p class="tagline">unkempt spreadsheets in, clean typed SQL tables out</p>
+    </div>
+  </div>
+  <a class="gh" href="https://github.com/FavioJasso/kempt" rel="noopener">GitHub</a>
+</header>
+
+<main>
+  <section class="intake" id="intake">
+    <label class="drop" id="drop" tabindex="0">
+      <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+      <span class="drop-title">Drop an XLSX or CSV here</span>
+      <span class="drop-sub" id="drop-sub">or click to choose a file. It is processed in memory and never stored.</span>
+    </label>
+    <div class="samples">
+      <span class="samples-label">Try a sample:</span>
+      <div class="sample-list" id="samples"></div>
+    </div>
+    <details class="options">
+      <summary>Options</summary>
+      <div class="option-grid">
+        <label><input type="checkbox" id="opt-keep-totals"> Keep totals rows</label>
+        <label>Date order
+          <select id="opt-date-order">
+            <option value="">auto (MM/DD on ties)</option>
+            <option value="mdy">MM/DD</option>
+            <option value="dmy">DD/MM</option>
+          </select>
+        </label>
+        <label>Lenient
+          <select id="opt-lenient">
+            <option value="">strict (100%)</option>
+            <option value="0.98">0.98</option>
+            <option value="0.95">0.95</option>
+            <option value="0.9">0.90</option>
+          </select>
+        </label>
+        <label>Header rows <input type="number" id="opt-header-rows" min="0" max="10" placeholder="auto"></label>
+        <label>Skip rows <input type="number" id="opt-skip-rows" min="0" max="100" placeholder="auto"></label>
+        <label>Fill down <input type="text" id="opt-fill-down" placeholder="e.g. A or category"></label>
+      </div>
+    </details>
+  </section>
+
+  <div class="banner" id="banner" role="alert" hidden></div>
+
+  <section class="workspace" id="workspace" hidden>
+    <div class="file-bar">
+      <div class="file-name" id="file-name"></div>
+      <div class="sheet-tabs" id="sheet-tabs" role="tablist" aria-label="Sheets"></div>
+    </div>
+    <div class="panes">
+      <section class="pane pane-left" aria-label="Original sheet">
+        <div class="pane-head">
+          <h2>Original</h2>
+          <span class="dims" id="dims"></span>
+        </div>
+        <ul class="legend" id="legend" aria-label="Legend"></ul>
+        <div class="grid-wrap" id="grid-wrap"></div>
+      </section>
+      <section class="pane pane-right" aria-label="Clean output">
+        <div class="pane-head">
+          <div class="tabs" role="tablist" aria-label="Output">
+            <button role="tab" data-tab="clean" aria-selected="true">Clean table</button>
+            <button role="tab" data-tab="ddl" aria-selected="false">DDL</button>
+            <button role="tab" data-tab="decisions" aria-selected="false">Decisions <span class="count" id="decision-count"></span></button>
+            <button role="tab" data-tab="query" aria-selected="false" id="query-tab" hidden>Query</button>
+          </div>
+          <button class="btn primary" id="load-btn" hidden>Load into Postgres</button>
+        </div>
+        <div class="table-picker" id="table-picker" hidden></div>
+        <div class="tab-body" id="tab-clean" role="tabpanel"></div>
+        <div class="tab-body" id="tab-ddl" role="tabpanel" hidden>
+          <div class="ddl-bar">
+            <div class="seg" id="dialects" role="group" aria-label="Dialect">
+              <button data-dialect="postgres" aria-pressed="true">Postgres</button>
+              <button data-dialect="mysql" aria-pressed="false">MySQL</button>
+              <button data-dialect="sqlite" aria-pressed="false">SQLite</button>
+            </div>
+            <button class="btn" id="copy-ddl">Copy</button>
+          </div>
+          <pre class="code" id="ddl"></pre>
+        </div>
+        <div class="tab-body" id="tab-decisions" role="tabpanel" hidden>
+          <p class="hint">Click a decision to highlight its cells in the original sheet.</p>
+          <ol class="decisions" id="decisions"></ol>
+        </div>
+        <div class="tab-body" id="tab-query" role="tabpanel" hidden>
+          <p class="hint" id="query-hint"></p>
+          <textarea id="sql" rows="5" spellcheck="false" aria-label="SQL query"></textarea>
+          <div class="query-bar">
+            <button class="btn primary" id="run-sql">Run <kbd>Ctrl</kbd>+<kbd>Enter</kbd></button>
+            <span class="query-meta" id="query-meta"></span>
+          </div>
+          <div class="results" id="results"></div>
+        </div>
+      </section>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  Open source, MIT licensed. Uploads are processed in memory; loaded demo schemas are dropped after an hour.
+</footer>
+</body>
+</html>
