@@ -458,7 +458,8 @@ func (s *sheet) scoreHeader(rows []int, c1, c2 int) []headerScore {
 			break
 		}
 		st := s.stats(r, c1, c2)
-		if st.eff == 0 || (width > 1 && st.distinct <= 1) {
+		// A single value (often merged across the table) is a title, not a header.
+		if st.eff == 0 || (width > 1 && st.distinct <= 1 && s.ownFilled(r, c1, c2) <= 1) {
 			continue
 		}
 		g := s.gain(r, rows[len(rows)-1], c1, c2, st)

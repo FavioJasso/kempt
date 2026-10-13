@@ -1,0 +1,347 @@
+{
+  "file": "two_tables.xlsx",
+  "sheets": [
+    {
+      "sheet": "Summary",
+      "dimensions": "A1:E15",
+      "decisions": [
+        {
+          "kind": "skip_region",
+          "range": "Summary!A15",
+          "reason": "Region A15 was not loaded as a table because it has a single row (a table needs a header and at least 2 data rows).",
+          "confidence": 0.7
+        },
+        {
+          "kind": "split_region",
+          "range": "Summary!A15",
+          "reason": "A new region starts at row 15: rows 13–14 are blank after the table ending at row 12, and two or more blank rows separate tables.",
+          "confidence": 0.9
+        }
+      ],
+      "cellRoles": {
+        "A1": "header",
+        "A10": "data",
+        "A11": "data",
+        "A12": "data",
+        "A15": "ignored",
+        "A2": "data",
+        "A3": "data",
+        "A4": "data",
+        "A5": "data",
+        "A8": "title",
+        "A9": "header",
+        "B1": "header",
+        "B10": "data",
+        "B11": "data",
+        "B12": "data",
+        "B2": "data",
+        "B3": "data",
+        "B4": "data",
+        "B5": "data",
+        "B8": "blank",
+        "B9": "header",
+        "C1": "header",
+        "C10": "data",
+        "C11": "data",
+        "C12": "data",
+        "C2": "data",
+        "C3": "data",
+        "C4": "data",
+        "C5": "data",
+        "C8": "blank",
+        "C9": "header",
+        "D1": "header",
+        "D2": "data",
+        "D3": "data",
+        "D4": "data",
+        "D5": "data",
+        "E1": "header",
+        "E2": "data",
+        "E3": "data",
+        "E4": "data",
+        "E5": "data"
+      },
+      "tables": [
+        {
+          "table": "summary_1",
+          "region": "A1:E5",
+          "rowCount": 4,
+          "columns": [
+            {
+              "name": "region",
+              "header": "Region",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 5
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(8)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "Region"
+            },
+            {
+              "name": "q1_sales",
+              "header": "Q1 Sales",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Q1 Sales"
+            },
+            {
+              "name": "q2_sales",
+              "header": "Q2 Sales",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "Q2 Sales"
+            },
+            {
+              "name": "q3_sales",
+              "header": "Q3 Sales",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "Q3 Sales"
+            },
+            {
+              "name": "q4_sales",
+              "header": "Q4 Sales",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "E"
+              ],
+              "comment": "Q4 Sales"
+            }
+          ],
+          "rows": [
+            [
+              "North",
+              120500,
+              131200,
+              128900,
+              140100
+            ],
+            [
+              "South",
+              98000,
+              101500,
+              99750,
+              110250
+            ],
+            [
+              "East",
+              143250,
+              150000,
+              147800,
+              162300
+            ],
+            [
+              "West",
+              87600,
+              90100,
+              93450,
+              97800
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "column_name",
+              "range": "Summary!B1",
+              "reason": "Header \"Q1 Sales\" (column B) became q1_sales.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Summary!C1",
+              "reason": "Header \"Q2 Sales\" (column C) became q2_sales.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Summary!D1",
+              "reason": "Header \"Q3 Sales\" (column D) became q3_sales.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Summary!E1",
+              "reason": "Header \"Q4 Sales\" (column E) became q4_sales.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_row",
+              "range": "Summary!A1:E1",
+              "reason": "Row 1 scored highest as the header (3.80: 100% filled, 100% text, 100% unique, next rows 80% more numeric); the next best row (row 2) scored 2.20.",
+              "confidence": 0.95
+            }
+          ]
+        },
+        {
+          "table": "summary_2",
+          "region": "A8:C12",
+          "rowCount": 3,
+          "columns": [
+            {
+              "name": "rep",
+              "header": "Rep",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 12
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(16)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "Rep"
+            },
+            {
+              "name": "region",
+              "header": "Region",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 5
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(8)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Region"
+            },
+            {
+              "name": "deals_closed",
+              "header": "Deals Closed",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "Deals Closed"
+            }
+          ],
+          "rows": [
+            [
+              "Avery Chen",
+              "East",
+              42
+            ],
+            [
+              "Jordan Patel",
+              "North",
+              38
+            ],
+            [
+              "Sam Rivera",
+              "West",
+              35
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "skip_title_row",
+              "range": "Summary!A8:C8",
+              "reason": "Row 8 has a single value above the header (row 9); skipped as a title.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "split_region",
+              "range": "Summary!A8:C8",
+              "reason": "A new region starts at row 8: rows 6–7 are blank after the table ending at row 5, and two or more blank rows separate tables.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "column_name",
+              "range": "Summary!C9",
+              "reason": "Header \"Deals Closed\" (column C) became deals_closed.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_row",
+              "range": "Summary!A9:C9",
+              "reason": "Row 9 scored highest as the header (3.33: 100% filled, 100% text, 100% unique, next rows 33% more numeric); the next best row (row 10) scored 2.67.",
+              "confidence": 0.95
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

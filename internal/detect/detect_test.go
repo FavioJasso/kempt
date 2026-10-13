@@ -482,3 +482,15 @@ func TestDeterministic(t *testing.T) {
 		}
 	}
 }
+
+func TestIdenticalHeaderLabels(t *testing.T) {
+	g := mk(t, [][]any{
+		{"Value", "Value"},
+		{1, 2},
+		{3, 4},
+	})
+	rg := Detect(g, Options{}).Regions[0]
+	if rg.Skipped || !reflect.DeepEqual(rg.Header, []int{0}) || len(rg.Data) != 2 {
+		t.Fatalf("skipped %v header %v data %v", rg.Skipped, rg.Header, rg.Data)
+	}
+}
