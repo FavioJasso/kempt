@@ -1,0 +1,6 @@
+/dist/
+/kempt
+*.db
+*.sqlite
+*.sqlite3
+report.json
