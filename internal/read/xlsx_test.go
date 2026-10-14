@@ -256,7 +256,7 @@ func TestXLSXCellKinds(t *testing.T) {
 		must(t, f.SetCellValue(s, "J1", " padded "))
 		must(t, f.SetCellValue(s, "K1", 3))
 		must(t, f.SetCellFormula(s, "K1", "B1-39")) // excelize stores the cached value as t="str"
-		must(t, f.SetCellFormula(s, "L1", "B1*2"))  // no cached value
+		must(t, f.SetCellFormula(s, "L1", "B1*2"))  // no cached value: kempt evaluates it
 		must(t, f.SetCellValue(s, "M1", 0.1))
 		must(t, f.SetCellStyle(s, "M1", "M1", numFmtStyle(t, f, 0, `"mm"0`)))
 		for _, ref := range []string{"A2", "B2", "C2", "D2", "E2", "F2", "G2", "H2", "I2", "J2", "K2", "L2", "A3", "B3", "C3", "D3", "E3"} {
@@ -304,7 +304,7 @@ func TestXLSXCellKinds(t *testing.T) {
 		{"I1", grid.String, "2026-03-15", nil, false, ""},
 		{"J1", grid.String, " padded ", nil, false, ""},
 		{"K1", grid.Formula, "3", num(3), false, "B1-39"},
-		{"L1", grid.Formula, "", nil, false, "B1*2"},
+		{"L1", grid.Formula, "84", num(84), false, "B1*2"}, // evaluated: the file has no cached value
 		{"M1", grid.Number, "0.1", num(0.1), false, ""},
 		{"A2", grid.Error, "#DIV/0!", nil, false, ""},
 		{"B2", grid.Date, "2026-03-15T00:00:00Z", nil, true, ""},
@@ -337,8 +337,9 @@ func TestXLSXCellKinds(t *testing.T) {
 			t.Errorf("%s Num = %v, want %v", tt.ref, c.Num, *tt.num)
 		}
 	}
-	if !cellAt(t, g, "L1").IsEmpty() {
-		t.Error("formula without cached value should be empty")
+	// A formula saved without a cached result is evaluated.
+	if c := cellAt(t, g, "L1"); c.Kind != grid.Formula || c.Raw != "84" || c.Num == nil || *c.Num != 84 || c.Formula != "B1*2" {
+		t.Errorf("uncached formula L1 = %+v, want its computed value 84", c)
 	}
 	if g.Source != "xlsx" || g.Delimiter != 0 || g.Sheet != "Sheet1" || g.Date1904 {
 		t.Errorf("grid meta = %q %q %q %v", g.Source, g.Delimiter, g.Sheet, g.Date1904)
@@ -393,15 +394,26 @@ func TestXLSXBoundsAndMerges(t *testing.T) {
 			values: map[string]string{"A1": "Title", "B1": ""},
 		},
 		{
-			name: "whitespace and empty formulas past the data do not widen the grid",
+			name: "whitespace and formulas that evaluate to empty past the data do not widen the grid",
 			build: func(f *excelize.File) {
 				must(t, f.SetCellValue("Sheet1", "A1", "a"))
 				must(t, f.SetCellValue("Sheet1", "B2", "b"))
 				must(t, f.SetCellValue("Sheet1", "D1", "   "))
-				must(t, f.SetCellFormula("Sheet1", "A5", "B2&\"\""))
+				must(t, f.SetCellFormula("Sheet1", "A5", `IF(B2="x","y","")`))
 			},
 			rows: 2, cols: 2,
 			values: map[string]string{"A1": "a", "B2": "b"},
+		},
+		{
+			name: "uncached formulas past the data are evaluated and widen the grid",
+			build: func(f *excelize.File) {
+				must(t, f.SetCellValue("Sheet1", "A1", "a"))
+				must(t, f.SetCellValue("Sheet1", "B2", 2))
+				must(t, f.SetCellFormula("Sheet1", "A5", "B2*21"))
+				must(t, f.SetCellFormula("Sheet1", "B5", "1/0"))
+			},
+			rows: 5, cols: 2,
+			values: map[string]string{"A1": "a", "B2": "2", "A5": "42", "B5": "#CALC!"},
 		},
 		{
 			name:  "empty sheet",

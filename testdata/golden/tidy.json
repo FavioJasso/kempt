@@ -380,7 +380,7 @@
             {
               "kind": "header_row",
               "range": "tidy!A1:H1",
-              "reason": "Row 1 scored highest as the header (3.50: 100% filled, 100% text, 100% unique, next rows 50% more numeric); the next best row (row 2) scored 2.50.",
+              "reason": "Row 1 scored highest as the header (3.50: 100% filled, 100% labels, 100% unique, next rows 50% more numeric); the next best row (row 2) scored 2.50.",
               "confidence": 0.95
             }
           ]

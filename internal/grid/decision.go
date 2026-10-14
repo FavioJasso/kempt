@@ -12,10 +12,13 @@ const (
 	KSkipRowsForced  = "skip_rows_forced"  // --skip-rows removed leading rows
 	KSkipTitleRow    = "skip_title_row"    // leading title row above the header
 	KSkipLeadingRow  = "skip_leading_row"  // non-title row above the header (low confidence)
+	KLeadingData     = "leading_data_row"  // data-like row above the header, kept as data
 	KSplitRegion     = "split_region"      // blank rows started a new table
 	KSkipRegion      = "skip_region"       // region too small to be a table
 	KHeaderRow       = "header_row"        // which row was chosen as the header
 	KHeaderMerge     = "header_merge"      // multi-row header combined as group_sub
+	KNoHeader        = "no_header"         // no row looks like a header; columns get generated names
+	KPossibleNote    = "possible_note"     // a single-value row under the header, kept as data
 	KColumnName      = "column_name"       // header text was renamed/deduped
 	KStripUnit       = "strip_unit"        // unit moved from header to Column.Unit
 	KDropEmptyColumn = "drop_empty_column" // column with no header and no data

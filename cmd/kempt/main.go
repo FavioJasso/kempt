@@ -40,6 +40,7 @@ type flags struct {
 	sheet      string
 	headerRows int
 	skipRows   int
+	skipSet    bool // --skip-rows was given (so 0 forces the header onto row 1)
 	keepTotals bool
 	fillDown   []string
 	lenient    float64
@@ -65,10 +66,11 @@ func (f *flags) planOptions() (plan.Options, error) {
 	}
 	return plan.Options{
 		Detect: detect.Options{
-			SkipRows:   f.skipRows,
-			HeaderRows: f.headerRows,
-			KeepTotals: f.keepTotals,
-			FillDown:   f.fillDown,
+			SkipRows:    f.skipRows,
+			SkipRowsSet: f.skipSet,
+			HeaderRows:  f.headerRows,
+			KeepTotals:  f.keepTotals,
+			FillDown:    f.fillDown,
 		},
 		Infer: infer.Options{Lenient: f.lenient, DateOrder: order},
 		Table: f.table,
@@ -133,11 +135,16 @@ func newRoot() *cobra.Command {
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			if fl := cmd.Flag("skip-rows"); fl != nil {
+				f.skipSet = fl.Changed
+			}
+		},
 	}
 	pf := root.PersistentFlags()
 	pf.StringVar(&f.sheet, "sheet", "", "only process this sheet (default: every visible sheet)")
 	pf.IntVar(&f.headerRows, "header-rows", 0, "force the header height in rows (0 = detect)")
-	pf.IntVar(&f.skipRows, "skip-rows", 0, "force the number of leading rows to skip before the header (0 = detect)")
+	pf.IntVar(&f.skipRows, "skip-rows", 0, "force the number of leading rows to skip; the header starts right after (--skip-rows 0 puts it on row 1)")
 	pf.BoolVar(&f.keepTotals, "keep-totals", false, "keep totals and subtotals rows as data")
 	pf.StringSliceVar(&f.fillDown, "fill-down", nil, "fill blank cells from above in these columns (letters, header text, or names)")
 	pf.Float64Var(&f.lenient, "lenient", 0, "keep a column's type if at least this fraction of values parse (failures become NULL)")

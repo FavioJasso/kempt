@@ -141,6 +141,14 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	for _, m := range merges {
 		maxR, maxC = max(maxR, m.R2), max(maxC, m.C2)
 	}
+	calc, err := x.uncached(name, rows, merges)
+	if err != nil {
+		return nil, err
+	}
+	for k := range calc {
+		maxR, maxC = max(maxR, k[0]), max(maxC, k[1])
+		stored++
+	}
 	if x.maxRows > 0 && maxR+1 > x.maxRows {
 		return nil, tooManyRows(name, x.maxRows)
 	}
@@ -168,7 +176,12 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 			if coveredByMerge(active, r, c) {
 				continue // Excel only shows the anchor's value
 			}
-			cell, err := x.cell(name, r, c, raw)
+			var cell grid.Cell
+			if res, ok := calc[[2]int{r, c}]; ok {
+				cell, err = x.calcCell(name, r, c, res)
+			} else {
+				cell, err = x.cell(name, r, c, raw)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -369,6 +382,78 @@ func (x *xlsxReader) cell(sheet string, r, c int, raw string) (grid.Cell, error)
 		cell.Kind = grid.Formula
 		cell.Formula = formula
 	}
+	return cell, nil
+}
+
+// maxCalc bounds how many formulas without a cached value kempt evaluates
+// per sheet; the rest read as #CALC! errors (NULL, with a decision).
+const maxCalc = 20_000
+
+// calcResult is a formula that had no cached value in the file.
+type calcResult struct {
+	formula string
+	value   string
+	failed  bool
+}
+
+// uncached evaluates formulas that the file stores without a cached result
+// (workbooks written by scripts are often never recalculated). Without this
+// their cells would read as empty and whole rows could vanish.
+func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range) (map[[2]int]calcResult, error) {
+	out := map[[2]int]calcResult{}
+	var active []grid.Range
+	next, n := 0, 0
+	for r, row := range rows {
+		active = activeMerges(active, merges, &next, r)
+		vi := 0
+		for c := 0; c < row.width; c++ {
+			if vi < len(row.vals) && row.vals[vi].c == c {
+				vi++
+				continue
+			}
+			if coveredByMerge(active, r, c) {
+				continue
+			}
+			ref := grid.CellRef(r, c)
+			f, err := x.f.GetCellFormula(sheet, ref)
+			if err != nil {
+				return nil, cellError(sheet, ref, err)
+			}
+			if f = strings.TrimPrefix(f, "="); f == "" {
+				continue
+			}
+			res := calcResult{formula: f, failed: true}
+			if n < maxCalc {
+				v, err := x.f.CalcCellValue(sheet, ref, excelize.Options{RawCellValue: true})
+				if err == nil && strings.TrimSpace(v) == "" {
+					n++
+					continue // evaluates to an empty string, as in =IF(A1="","",...)
+				}
+				if err == nil {
+					res.value, res.failed = v, false
+				}
+			}
+			n++
+			out[[2]int{r, c}] = res
+		}
+	}
+	return out, nil
+}
+
+// calcCell builds the cell for an evaluated formula. A formula kempt cannot
+// evaluate becomes the error value #CALC!, so it is visible and logged.
+func (x *xlsxReader) calcCell(sheet string, r, c int, res calcResult) (grid.Cell, error) {
+	if res.failed {
+		return grid.Cell{Kind: grid.Error, Raw: "#CALC!", Formula: res.formula}, nil
+	}
+	cell, err := x.number(sheet, grid.CellRef(r, c), res.value)
+	if err != nil {
+		return grid.Cell{}, err
+	}
+	if cell.Kind == grid.Date {
+		cell.DateFmt = true
+	}
+	cell.Kind, cell.Formula = grid.Formula, res.formula
 	return cell, nil
 }
 

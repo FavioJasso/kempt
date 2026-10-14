@@ -298,3 +298,93 @@ func labelText(g *grid.Grid, c *grid.Cell) string {
 }
 
 func snake(s string) string { return normalize.SnakeCase(s) }
+
+// blankIn reports whether row r shows no value in columns c1..c2.
+func (s *sheet) blankIn(r, c1, c2 int) bool {
+	for c := c1; c <= c2; c++ {
+		if hasValue(s.g, r, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// nonBlankRowsIn lists the rows in first..last that show a value in c1..c2.
+func (s *sheet) nonBlankRowsIn(first, last, c1, c2 int) []int {
+	var out []int
+	for r := first; r <= last; r++ {
+		if !s.blankIn(r, c1, c2) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// belowRows returns up to n non-blank rows after r (within c1..c2),
+// stopping at two consecutive blank rows.
+func (s *sheet) belowRows(r, c1, c2, n int) []int {
+	var out []int
+	blanks := 0
+	for rr := r + 1; rr < s.g.Rows && len(out) < n && blanks < 2; rr++ {
+		if s.blankIn(rr, c1, c2) {
+			blanks++
+			continue
+		}
+		blanks = 0
+		out = append(out, rr)
+	}
+	return out
+}
+
+// colClass returns the most common kind of value in column c across rows,
+// ignoring empty cells and placeholders. Ties go to text, the kind that
+// claims the least. It returns clEmpty when the column has no values.
+func (s *sheet) colClass(rows []int, c int) class {
+	var n [clText + 1]int
+	for _, r := range rows {
+		if !hasValue(s.g, r, c) {
+			continue
+		}
+		n[s.classOf(r, c)]++
+	}
+	best := clEmpty
+	for _, k := range []class{clText, clNum, clDate, clBool} {
+		if n[k] > 0 && (best == clEmpty || n[k] > n[best]) {
+			best = k
+		}
+	}
+	return best
+}
+
+// colYearLike reports whether every number in column c across rows looks
+// like a year.
+func (s *sheet) colYearLike(rows []int, c int) bool {
+	seen := false
+	for _, r := range rows {
+		if !hasValue(s.g, r, c) || s.classOf(r, c) != clNum {
+			continue
+		}
+		if !yearLike(s.g, s.g.Value(r, c)) {
+			return false
+		}
+		seen = true
+	}
+	return seen
+}
+
+// yearLike reports whether a numeric cell holds a whole number between 1800
+// and 2200.
+func yearLike(g *grid.Grid, c *grid.Cell) bool {
+	var v float64
+	switch {
+	case c.Num != nil:
+		v = *c.Num
+	default:
+		n, ok := normalize.ParseNumber(strings.TrimSpace(c.Raw))
+		if !ok || !n.IsInt() || n.Grouped || n.Currency != "" || n.Percent || n.Accounting {
+			return false
+		}
+		v = n.Float
+	}
+	return v == float64(int64(v)) && v >= 1800 && v <= 2200
+}

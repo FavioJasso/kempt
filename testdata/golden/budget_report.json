@@ -480,7 +480,7 @@
             {
               "kind": "header_row",
               "range": "'Budget Summary'!A5:H5",
-              "reason": "Row 5 scored highest as the header (3.45: 100% filled, 100% text, 75% unique, next rows 70% more numeric); the next best row (row 6) scored 2.45.",
+              "reason": "Row 5 scored highest as the header (3.45: 100% filled, 100% labels, 75% unique, next rows 70% more numeric); the next best row (row 6) scored 2.45; row 4 above holds its group labels.",
               "confidence": 0.95
             },
             {

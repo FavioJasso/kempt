@@ -184,7 +184,7 @@
             {
               "kind": "header_row",
               "range": "ambiguous_dates!A1:D1",
-              "reason": "Row 1 scored highest as the header (3.75: 100% filled, 100% text, 100% unique, next rows 75% more numeric); the next best row (row 2) scored 2.25.",
+              "reason": "Row 1 scored highest as the header (3.75: 100% filled, 100% labels, 100% unique, next rows 75% more numeric); the next best row (row 2) scored 2.25.",
               "confidence": 0.95
             },
             {

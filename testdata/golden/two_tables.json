@@ -8,13 +8,13 @@
         {
           "kind": "skip_region",
           "range": "Summary!A15",
-          "reason": "Region A15 was not loaded as a table because it has a single row (a table needs a header and at least 2 data rows).",
+          "reason": "Region A15 was not loaded as a table because it has a single row (a table needs at least 2 data rows).",
           "confidence": 0.7
         },
         {
           "kind": "split_region",
           "range": "Summary!A15",
-          "reason": "A new region starts at row 15: rows 13–14 are blank after the table ending at row 12, and two or more blank rows separate tables.",
+          "reason": "A new region starts at row 15: rows 13–14 are blank after the table ending at row 12.",
           "confidence": 0.9
         }
       ],
@@ -226,7 +226,7 @@
             {
               "kind": "header_row",
               "range": "Summary!A1:E1",
-              "reason": "Row 1 scored highest as the header (3.80: 100% filled, 100% text, 100% unique, next rows 80% more numeric); the next best row (row 2) scored 2.20.",
+              "reason": "Row 1 scored highest as the header (3.80: 100% filled, 100% labels, 100% unique, next rows 80% more numeric); the next best row (row 2) scored 2.20.",
               "confidence": 0.95
             }
           ]
@@ -324,7 +324,7 @@
             {
               "kind": "split_region",
               "range": "Summary!A8:C8",
-              "reason": "A new region starts at row 8: rows 6–7 are blank after the table ending at row 5, and two or more blank rows separate tables.",
+              "reason": "A new region starts at row 8: rows 6–7 are blank after the table ending at row 5.",
               "confidence": 0.9
             },
             {
@@ -336,7 +336,7 @@
             {
               "kind": "header_row",
               "range": "Summary!A9:C9",
-              "reason": "Row 9 scored highest as the header (3.33: 100% filled, 100% text, 100% unique, next rows 33% more numeric); the next best row (row 10) scored 2.67.",
+              "reason": "Row 9 scored highest as the header (3.33: 100% filled, 100% labels, 100% unique, next rows 33% more numeric); the next best row (row 10) scored 2.67.",
               "confidence": 0.95
             }
           ]

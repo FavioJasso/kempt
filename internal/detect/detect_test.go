@@ -272,7 +272,7 @@ func TestTrailingNoteKeptAsPossibleFooter(t *testing.T) {
 		{"Name", "Score"},
 		{"Ann", 1},
 		{"Bob", 2},
-		{"Last updated March"},
+		{"Reviewed by the team"},
 	})
 	rg := Detect(g, Options{}).Regions[0]
 	if len(rg.Data) != 3 {

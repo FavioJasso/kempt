@@ -139,6 +139,7 @@ func (up *upload) applyFields(f map[string]string) error {
 	if d.SkipRows, err = atoi("skip_rows"); err != nil {
 		return err
 	}
+	d.SkipRowsSet = f["skip_rows"] != ""
 	d.KeepTotals = f["keep_totals"] == "1" || f["keep_totals"] == "true" || f["keep_totals"] == "on"
 	for _, c := range strings.Split(f["fill_down"], ",") {
 		if c = strings.TrimSpace(c); c != "" {
