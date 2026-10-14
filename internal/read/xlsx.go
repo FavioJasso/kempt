@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -39,7 +38,11 @@ func XLSX(r io.Reader, opts Options) ([]*grid.Grid, error) {
 	if p, err := f.GetWorkbookProps(); err == nil && p.Date1904 != nil {
 		date1904 = *p.Date1904
 	}
-	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, styles: map[int]cellStyle{}}
+	parts, err := packageParts(f)
+	if err != nil {
+		return nil, err
+	}
+	x := &xlsxReader{f: f, parts: parts, maxRows: opts.MaxRows, maxCells: opts.MaxCells, calcLimit: opts.CalcLimit, styles: map[int]cellStyle{}}
 	grids := make([]*grid.Grid, 0, len(names))
 	for _, name := range names {
 		g, err := x.sheet(name)
@@ -98,53 +101,64 @@ func noVisibleSheets(f *excelize.File) error {
 }
 
 type xlsxReader struct {
-	f        *excelize.File
-	maxRows  int
-	maxCells int64
-	styles   map[int]cellStyle // style id → classified number format
+	f         *excelize.File
+	parts     pkgParts
+	sst       []string
+	sstLoaded bool
+	maxRows   int
+	maxCells  int64
+	calcLimit int
+	styles    map[int]cellStyle // style id → classified number format
 }
 
-// rawRow is one row as excelize reads it: its width (gaps padded with "")
-// and its non-empty values in column order. Rows are kept sparse so a stray
-// value in column XFD costs one entry, not 16,384.
-type rawRow struct {
-	width int
-	vals  []rawVal
-}
-
-type rawVal struct {
-	c int
-	v string
+// sharedStrings loads the shared string table once per workbook.
+func (x *xlsxReader) sharedStrings() error {
+	if x.sstLoaded {
+		return nil
+	}
+	x.sstLoaded = true
+	data, ok := pkgPart(x.f, x.parts.sst)
+	if !ok {
+		return nil // a workbook without text has no table
+	}
+	sst, err := readSST(data)
+	x.sst = sst
+	return err
 }
 
 func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
-	rows, err := x.rawRows(name)
+	part, ok := x.parts.sheets[name]
+	if !ok {
+		return nil, fmt.Errorf("read: sheet %q: its part is missing from the workbook", name)
+	}
+	if !strings.HasSuffix(part.kind, "/worksheet") {
+		return nil, fmt.Errorf("%w: sheet %q is a chart or dialog sheet", errNotWorksheet, name)
+	}
+	data, ok := pkgPart(x.f, part.path)
+	if !ok {
+		return nil, fmt.Errorf("read: sheet %q: part %s is missing", name, part.path)
+	}
+	if err := x.sharedStrings(); err != nil {
+		return nil, err
+	}
+	sd, err := x.scan(name, data)
 	if err != nil {
 		return nil, err
 	}
+	rows, merges := sd.rows, sd.merges
 
-	// The grid ends at the last visible value or merge extent. Check its
-	// density on the raw values first: loading the merges makes excelize
-	// expand the whole worksheet in memory.
-	maxR, maxC, stored := bounds(rows, nil)
+	// The grid ends at the last visible value or merge extent.
+	maxR, maxC, stored := bounds(rows, merges)
+	for _, m := range merges {
+		maxR, maxC = max(maxR, m.R2), max(maxC, m.C2)
+	}
 	if err := checkDensity(name, maxR+1, maxC+1, stored); err != nil {
 		return nil, err
 	}
 	if err := checkCells(name, maxR+1, maxC+1, x.maxCells); err != nil {
 		return nil, err
 	}
-	merges, err := x.merges(name)
-	if err != nil {
-		return nil, err
-	}
-	maxR, maxC, stored = bounds(rows, merges)
-	for _, m := range merges {
-		maxR, maxC = max(maxR, m.R2), max(maxC, m.C2)
-	}
-	calc, err := x.uncached(name, rows, merges)
-	if err != nil {
-		return nil, err
-	}
+	calc := x.uncached(name, rows, merges, stored)
 	for k := range calc {
 		maxR, maxC = max(maxR, k[0]), max(maxC, k[1])
 		stored++
@@ -164,29 +178,19 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	var active []grid.Range // merges overlapping the current row
 	next := 0
 	for r := 0; r <= maxR && r < len(rows); r++ {
-		row := rows[r]
 		active = activeMerges(active, merges, &next, r)
-		vi := 0
-		for c := 0; c < min(row.width, maxC+1); c++ {
-			raw := ""
-			if vi < len(row.vals) && row.vals[vi].c == c {
-				raw = row.vals[vi].v
-				vi++
-			}
-			if coveredByMerge(active, r, c) {
+		for _, rv := range rows[r].vals {
+			if rv.c > maxC || coveredByMerge(active, r, rv.c) {
 				continue // Excel only shows the anchor's value
 			}
 			var cell grid.Cell
-			if res, ok := calc[[2]int{r, c}]; ok {
-				cell, err = x.calcCell(name, r, c, res)
+			if res, ok := calc[[2]int{r, rv.c}]; ok {
+				cell = x.calcCell(rv, res)
 			} else {
-				cell, err = x.cell(name, r, c, raw)
-			}
-			if err != nil {
-				return nil, err
+				cell = x.cell(rv)
 			}
 			if cell.Kind != grid.Empty {
-				g.Cells[r][c] = cell
+				g.Cells[r][rv.c] = cell
 			}
 		}
 	}
@@ -215,43 +219,6 @@ func bounds(rows []rawRow, merges []grid.Range) (maxR, maxC, values int) {
 	return maxR, maxC, values
 }
 
-// rawRows returns raw cell values (what GetRows returns with RawCellValue),
-// stopping early once the sheet exceeds maxRows.
-func (x *xlsxReader) rawRows(sheet string) ([]rawRow, error) {
-	it, err := x.f.Rows(sheet)
-	if err != nil {
-		return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
-	}
-	defer it.Close()
-	var out []rawRow
-	for n := 1; it.Next(); n++ {
-		row, err := it.Columns(excelize.Options{RawCellValue: true})
-		if err != nil {
-			return nil, fmt.Errorf("read: sheet %q row %d: %w", sheet, n, err)
-		}
-		if len(row) == 0 {
-			continue
-		}
-		if x.maxRows > 0 && n > x.maxRows && hasValue(row) {
-			return nil, tooManyRows(sheet, x.maxRows)
-		}
-		rr := rawRow{width: len(row)}
-		for c, v := range row {
-			if v != "" {
-				rr.vals = append(rr.vals, rawVal{c, v})
-			}
-		}
-		for len(out) < n-1 {
-			out = append(out, rawRow{})
-		}
-		out = append(out, rr)
-	}
-	if err := it.Error(); err != nil {
-		return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
-	}
-	return out, nil
-}
-
 func hasValue(row []string) bool {
 	for _, v := range row {
 		if strings.TrimSpace(v) != "" {
@@ -259,48 +226,6 @@ func hasValue(row []string) bool {
 		}
 	}
 	return false
-}
-
-// merges returns the sheet's merged ranges sorted by position. A chart sheet
-// yields errNotWorksheet.
-func (x *xlsxReader) merges(sheet string) ([]grid.Range, error) {
-	mcs, err := x.f.GetMergeCells(sheet, true)
-	if err != nil {
-		if strings.HasSuffix(err.Error(), "is not a worksheet") {
-			return nil, fmt.Errorf("%w: sheet %q is a chart or dialog sheet", errNotWorksheet, sheet)
-		}
-		return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
-	}
-	if len(mcs) > 0 {
-		// excelize resolves every per-cell lookup through the merge list; drop
-		// it from the in-memory workbook (never saved) so lookups stay O(1) in
-		// the number of merges. Covered cells are skipped by the caller.
-		if err := x.f.UnmergeCell(sheet, "A1", "XFD1048576"); err != nil {
-			return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
-		}
-	}
-	out := make([]grid.Range, 0, len(mcs))
-	for _, mc := range mcs {
-		rg, err := grid.ParseRange(mc.GetStartAxis() + ":" + mc.GetEndAxis())
-		if err != nil {
-			continue
-		}
-		out = append(out, rg)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.R1 != b.R1 {
-			return a.R1 < b.R1
-		}
-		if a.C1 != b.C1 {
-			return a.C1 < b.C1
-		}
-		if a.R2 != b.R2 {
-			return a.R2 < b.R2
-		}
-		return a.C2 < b.C2
-	})
-	return out, nil
 }
 
 // activeMerges updates the set of merges that overlap row r. merges is sorted
@@ -329,60 +254,44 @@ func coveredByMerge(active []grid.Range, r, c int) bool {
 	return false
 }
 
-// cell builds the grid cell at (r, c) from its raw value plus the cell's
-// stored type, formula, and number format.
-func (x *xlsxReader) cell(sheet string, r, c int, raw string) (grid.Cell, error) {
-	ref := grid.CellRef(r, c)
-	formula, err := x.f.GetCellFormula(sheet, ref)
-	if err != nil {
-		return grid.Cell{}, cellError(sheet, ref, err)
-	}
-	formula = strings.TrimPrefix(formula, "=")
+// cell builds a grid cell from a stored cell's raw value, type, formula and
+// number format.
+func (x *xlsxReader) cell(rv rawVal) grid.Cell {
+	raw := rv.v
 	if raw == "" {
-		if formula == "" {
-			return grid.Cell{}, nil
+		if rv.formula == "" {
+			return grid.Cell{}
 		}
-		return grid.Cell{Kind: grid.Formula, Formula: formula}, nil // no cached value
+		return grid.Cell{Kind: grid.Formula, Formula: rv.formula} // no cached value
 	}
-	typ, err := x.f.GetCellType(sheet, ref)
-	if err != nil {
-		return grid.Cell{}, cellError(sheet, ref, err)
-	}
-
 	var cell grid.Cell
-	switch typ {
-	case excelize.CellTypeSharedString, excelize.CellTypeInlineString:
+	switch rv.t {
+	case "s", "inlineStr":
 		cell = grid.Cell{Kind: grid.String, Raw: raw}
-	case excelize.CellTypeBool:
+	case "b":
 		cell = boolCell(raw)
-	case excelize.CellTypeError:
-		return grid.Cell{Kind: grid.Error, Raw: raw}, nil // cached errors stay errors
-	case excelize.CellTypeDate:
+	case "e":
+		return grid.Cell{Kind: grid.Error, Raw: raw} // cached errors stay errors
+	case "d":
 		cell = grid.Cell{Kind: grid.Date, Raw: raw, DateFmt: true}
-	case excelize.CellTypeFormula: // t="str": a string formula result
+	case "str": // a string formula result
 		cell = grid.Cell{Kind: grid.String, Raw: raw}
-		if formula != "" && plainNumber.MatchString(raw) {
+		if rv.formula != "" && plainNumber.MatchString(raw) {
 			// Some writers (excelize included) store numeric results as
 			// text. Only text a float reproduces exactly becomes a number:
 			// "4111111111111111" (16 digits) and "-0" stay text.
-			n, err := x.number(sheet, ref, raw)
-			if err != nil {
-				return grid.Cell{}, err
-			}
-			if n.Num != nil && formatNumber(*n.Num) == raw {
+			if n := x.number(raw, rv.style); n.Num != nil && formatNumber(*n.Num) == raw {
 				cell = n
 			}
 		}
 	default: // "n" or no type
-		if cell, err = x.number(sheet, ref, raw); err != nil {
-			return grid.Cell{}, err
-		}
+		cell = x.number(raw, rv.style)
 	}
-	if formula != "" {
+	if rv.formula != "" {
 		cell.Kind = grid.Formula
-		cell.Formula = formula
+		cell.Formula = rv.formula
 	}
-	return cell, nil
+	return cell
 }
 
 // maxCalc bounds how many formulas without a cached value kempt evaluates
@@ -398,33 +307,23 @@ type calcResult struct {
 
 // uncached evaluates formulas that the file stores without a cached result
 // (workbooks written by scripts are often never recalculated). Without this
-// their cells would read as empty and whole rows could vanish.
-func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range) (map[[2]int]calcResult, error) {
+// their cells would read as empty and whole rows could vanish. Evaluating
+// makes excelize load the whole sheet, so sheets with more than calcLimit
+// values are not evaluated and their uncached formulas read as #CALC!.
+func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range, stored int) map[[2]int]calcResult {
 	out := map[[2]int]calcResult{}
 	var active []grid.Range
 	next, n := 0, 0
+	evaluate := x.calcLimit <= 0 || stored <= x.calcLimit
 	for r, row := range rows {
 		active = activeMerges(active, merges, &next, r)
-		vi := 0
-		for c := 0; c < row.width; c++ {
-			if vi < len(row.vals) && row.vals[vi].c == c {
-				vi++
+		for _, rv := range row.vals {
+			if rv.v != "" || rv.formula == "" || coveredByMerge(active, r, rv.c) {
 				continue
 			}
-			if coveredByMerge(active, r, c) {
-				continue
-			}
-			ref := grid.CellRef(r, c)
-			f, err := x.f.GetCellFormula(sheet, ref)
-			if err != nil {
-				return nil, cellError(sheet, ref, err)
-			}
-			if f = strings.TrimPrefix(f, "="); f == "" {
-				continue
-			}
-			res := calcResult{formula: f, failed: true}
-			if n < maxCalc {
-				v, err := x.f.CalcCellValue(sheet, ref, excelize.Options{RawCellValue: true})
+			res := calcResult{formula: rv.formula, failed: true}
+			if evaluate && n < maxCalc {
+				v, err := x.f.CalcCellValue(sheet, grid.CellRef(r, rv.c), excelize.Options{RawCellValue: true})
 				if err == nil && strings.TrimSpace(v) == "" {
 					n++
 					continue // evaluates to an empty string, as in =IF(A1="","",...)
@@ -434,27 +333,24 @@ func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range) 
 				}
 			}
 			n++
-			out[[2]int{r, c}] = res
+			out[[2]int{r, rv.c}] = res
 		}
 	}
-	return out, nil
+	return out
 }
 
 // calcCell builds the cell for an evaluated formula. A formula kempt cannot
 // evaluate becomes the error value #CALC!, so it is visible and logged.
-func (x *xlsxReader) calcCell(sheet string, r, c int, res calcResult) (grid.Cell, error) {
+func (x *xlsxReader) calcCell(rv rawVal, res calcResult) grid.Cell {
 	if res.failed {
-		return grid.Cell{Kind: grid.Error, Raw: "#CALC!", Formula: res.formula}, nil
+		return grid.Cell{Kind: grid.Error, Raw: "#CALC!", Formula: res.formula}
 	}
-	cell, err := x.number(sheet, grid.CellRef(r, c), res.value)
-	if err != nil {
-		return grid.Cell{}, err
-	}
+	cell := x.number(res.value, rv.style)
 	if cell.Kind == grid.Date {
 		cell.DateFmt = true
 	}
 	cell.Kind, cell.Formula = grid.Formula, res.formula
-	return cell, nil
+	return cell
 }
 
 func cellError(sheet, ref string, err error) error {
@@ -509,20 +405,17 @@ func boolCell(raw string) grid.Cell {
 
 // number builds a numeric cell (Kind Date when its number format is a date or
 // time format). Non-numeric raw text becomes a String cell.
-func (x *xlsxReader) number(sheet, ref, raw string) (grid.Cell, error) {
+func (x *xlsxReader) number(raw string, style int) grid.Cell {
 	v, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
 	if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
-		return grid.Cell{Kind: grid.String, Raw: raw}, nil
+		return grid.Cell{Kind: grid.String, Raw: raw}
 	}
 	text := formatNumber(v)
 	if t := strings.TrimSpace(raw); plainInteger.MatchString(t) {
 		text = t // integers keep every digit (card numbers, long IDs); Excel shows only 15
 	}
 	cell := grid.Cell{Kind: grid.Number, Raw: text, Num: &v}
-	st, err := x.style(sheet, ref)
-	if err != nil {
-		return grid.Cell{}, err
-	}
+	st := x.style(style)
 	switch st.kind {
 	case fmtDate:
 		cell.Kind, cell.DateFmt = grid.Date, true
@@ -534,10 +427,10 @@ func (x *xlsxReader) number(sheet, ref, raw string) (grid.Cell, error) {
 		cell.TimeFmt = "elapsed"
 	case fmtZeroPad:
 		if padded, ok := applyMask(st.code, v); ok {
-			return grid.Cell{Kind: grid.String, Raw: padded, Mask: st.code}, nil
+			return grid.Cell{Kind: grid.String, Raw: padded, Mask: st.code}
 		}
 	}
-	return cell, nil
+	return cell
 }
 
 // numFmt is the kind of a number format.
@@ -558,14 +451,10 @@ type cellStyle struct {
 	code string // the custom format code, if any
 }
 
-// style classifies the cell's number format. Results are cached per style id.
-func (x *xlsxReader) style(sheet, ref string) (cellStyle, error) {
-	id, err := x.f.GetCellStyle(sheet, ref)
-	if err != nil {
-		return cellStyle{}, cellError(sheet, ref, err)
-	}
+// style classifies a style id's number format. Results are cached per id.
+func (x *xlsxReader) style(id int) cellStyle {
 	if v, ok := x.styles[id]; ok {
-		return v, nil
+		return v
 	}
 	var v cellStyle
 	if st, err := x.f.GetStyle(id); err == nil && st != nil {
@@ -576,7 +465,7 @@ func (x *xlsxReader) style(sheet, ref string) (cellStyle, error) {
 		}
 	}
 	x.styles[id] = v
-	return v, nil
+	return v
 }
 
 // builtinKind classifies a built-in number format id. Time-only ids

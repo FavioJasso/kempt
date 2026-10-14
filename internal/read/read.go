@@ -20,6 +20,10 @@ type Options struct {
 	// MaxCells caps rows x columns of each grid (0 = unlimited); larger
 	// sheets fail with ErrTooManyCells before the grid is allocated.
 	MaxCells int64
+	// CalcLimit skips evaluating formulas that have no cached value on
+	// sheets with more than this many stored values (0 = always evaluate);
+	// they read as #CALC!. Evaluating loads the whole sheet into memory.
+	CalcLimit int
 }
 
 var (

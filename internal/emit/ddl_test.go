@@ -314,3 +314,25 @@ func TestMySQLComment(t *testing.T) {
 		}
 	}
 }
+
+func TestDDLNoComments(t *testing.T) {
+	p := samplePlan()
+	for _, d := range infer.Dialects {
+		with := DDL(p, d, DDLOptions{})
+		without := DDL(p, d, DDLOptions{NoComments: true})
+		if !strings.Contains(strings.ToUpper(with), "COMMENT") && d != infer.SQLite {
+			t.Fatalf("%s: sample plan should have comments:\n%s", d, with)
+		}
+		for _, c := range p.Columns {
+			if c.Comment != "" && strings.Contains(without, c.Comment) {
+				t.Errorf("%s: comment %q still in\n%s", d, c.Comment, without)
+			}
+		}
+		if strings.Contains(without, "COMMENT") || strings.Contains(without, "Loaded by kempt") {
+			t.Errorf("%s: comments left in\n%s", d, without)
+		}
+	}
+	if p.Columns[0].Comment == "" && samplePlan().Columns[0].Comment != "" {
+		t.Error("NoComments changed the plan")
+	}
+}

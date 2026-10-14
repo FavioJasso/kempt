@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -22,13 +23,24 @@ import (
 const (
 	demoMaxUpload = 5 << 20
 	demoMaxRows   = 50_000
-	demoMaxCells  = 2_000_000 // rows x columns, checked before the grid is allocated
+	demoMaxCells  = 1_000_000 // rows x columns, checked before the grid is allocated
 	demoRate      = 10        // requests per minute per IP
+	demoAnalyses  = 2         // spreadsheets read at once
 	schemaTTL     = time.Hour
 	janitorEvery  = 10 * time.Minute
 
 	defaultMaxUpload = 64 << 20
 	defaultMaxCells  = 20_000_000
+	defaultAnalyses  = 4
+
+	// In demo mode, formulas without a cached value are evaluated only on
+	// sheets with at most this many values: evaluating loads the whole sheet
+	// into memory. Larger sheets read them as #CALC!.
+	demoCalcLimit = 200_000
+	// Queries in flight at once (each opens its own connection).
+	maxQueries = 4
+	// How long a request waits for an analysis or query slot.
+	slotWait = 20 * time.Second
 
 	gridRows    = 200 // rows of the original grid returned by /api/inspect
 	gridCols    = 30
@@ -62,13 +74,17 @@ type Server struct {
 	maxUpload int64
 	maxRows   int
 	maxCells  int64
+	calcLimit int
+	analyses  chan struct{} // analysis slots
+	queries   chan struct{} // query slots
 	handler   http.Handler
 }
 
 // New builds a server. When cfg.DSN is a Postgres DSN it opens a connection
 // pool lazily (connections are made on first use).
 func New(cfg Config) (*Server, error) {
-	s := &Server{cfg: cfg, log: cfg.Logger, maxUpload: defaultMaxUpload, maxCells: defaultMaxCells}
+	s := &Server{cfg: cfg, log: cfg.Logger, maxUpload: defaultMaxUpload, maxCells: defaultMaxCells,
+		analyses: make(chan struct{}, defaultAnalyses), queries: make(chan struct{}, maxQueries)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -79,7 +95,8 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	if cfg.Demo {
-		s.maxUpload, s.maxRows, s.maxCells = demoMaxUpload, demoMaxRows, demoMaxCells
+		s.maxUpload, s.maxRows, s.maxCells, s.calcLimit = demoMaxUpload, demoMaxRows, demoMaxCells, demoCalcLimit
+		s.analyses = make(chan struct{}, demoAnalyses)
 		s.limiter = newLimiter(demoRate, time.Minute)
 	}
 	if cfg.DSN != nil {
@@ -110,8 +127,24 @@ func (s *Server) Close() {
 	}
 }
 
-// Run serves until ctx is cancelled, then shuts down gracefully. In demo
-// mode it also runs the schema janitor.
+// acquire takes a slot from sem, waiting up to slotWait. The caller must
+// call the returned release.
+func acquire(ctx context.Context, sem chan struct{}) (func(), error) {
+	t := time.NewTimer(slotWait)
+	defer t.Stop()
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-t.C:
+		return nil, &httpError{http.StatusServiceUnavailable, "the server is busy; try again in a moment"}
+	case <-ctx.Done():
+		return nil, &httpError{http.StatusServiceUnavailable, "the request was cancelled"}
+	}
+}
+
+// Run serves until ctx is cancelled, then shuts down gracefully. When
+// loading is enabled it also runs the janitor that drops loaded schemas
+// after an hour.
 func (s *Server) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.cfg.Addr,
@@ -121,12 +154,16 @@ func (s *Server) Run(ctx context.Context) error {
 		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       2 * time.Minute,
 	}
-	if s.cfg.Demo && s.pool != nil {
+	ln, err := net.Listen("tcp", s.cfg.Addr)
+	if err != nil {
+		return err
+	}
+	if s.pool != nil {
 		go s.janitor(ctx)
 	}
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
-	s.log.Info("kempt serve listening", "addr", s.cfg.Addr, "demo", s.cfg.Demo, "load", s.pool != nil)
+	go func() { errc <- srv.Serve(ln) }()
+	s.log.Info("kempt serve listening", "addr", ln.Addr().String(), "demo", s.cfg.Demo, "load", s.pool != nil)
 	select {
 	case err := <-errc:
 		return err
@@ -134,7 +171,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := srv.Shutdown(shutdown)
+	err = srv.Shutdown(shutdown)
 	if errors.Is(err, http.ErrServerClosed) {
 		err = nil
 	}

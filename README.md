@@ -213,10 +213,12 @@ They are excellent, and if your file is already a tidy table you should use them
 | `GET /healthz` | liveness |
 | `GET /api/samples` | the bundled sample files |
 | `POST /api/inspect` | multipart `file` (or `sample`) and optional `keep_totals`, `lenient`, `date_order`, `header_rows`, `skip_rows`, `fill_down`, `sheet` → grid (first 200×30), cell roles, decisions, columns, a 50-row preview, and DDL for all three dialects |
-| `POST /api/load` | same input; loads into a fresh `demo_<random8>` schema → `{schema, table}` (Postgres only) |
-| `POST /api/query` | `{"schema", "sql"}` → at most 100 rows; one read-only statement, 2 s timeout |
+| `POST /api/load` | same input; loads into a fresh `demo_<random8>` schema → `{schema, token, table, tables, expiresAt}` (Postgres only) |
+| `POST /api/query` | `{"schema", "token", "sql"}` → at most 100 rows, each value cut to 2,000 characters; one read-only statement, 2 s timeout |
 
-Uploads are processed in memory and never written to disk. Each demo schema gets its own LOGIN role, which can only read that schema, and queries run as that role inside a `READ ONLY` transaction. The server's own database privileges are never exposed to the SQL console.
+Uploads are processed in memory and never written to disk. Each loaded schema gets its own LOGIN role, which can only read that schema, and queries run as that role inside a `READ ONLY` transaction. The role's password comes from `KEMPT_SECRET` and a random token that only the uploader receives, so knowing a schema's name is not enough to query it. The server's own database privileges are never exposed to the SQL console. Loaded schemas, and their roles, are dropped after an hour.
+
+Other demo users cannot read your rows, but the Postgres catalog is shared: table and column names of loaded schemas are visible to every role while the schema exists. Demo loads therefore leave out the comments that hold the original header text.
 
 | Variable | |
 |---|---|
@@ -226,7 +228,7 @@ Uploads are processed in memory and never written to disk. Each demo schema gets
 | `KEMPT_SECRET` | derives the per-schema query passwords; set it so loaded schemas stay queryable across restarts |
 | `KEMPT_TRUST_PROXY=1` | rate-limit by `X-Forwarded-For` (on automatically on Railway); leave it off when clients connect directly |
 
-Set `KEMPT_DEMO=1` for a public deployment. It caps uploads at 5 MB and 50,000 rows and allows 10 requests per minute per IP. It also drops `demo_*` schemas, and their roles, after an hour.
+Set `KEMPT_DEMO=1` for a public deployment. It caps uploads at 5 MB, 50,000 rows and 1,000,000 cells, reads at most two spreadsheets at a time, and allows 10 requests per minute per IP. Formulas without a cached value are evaluated only on sheets with up to 200,000 values; on larger sheets they read as `#CALC!`, which kempt logs.
 
 ## Railway
 

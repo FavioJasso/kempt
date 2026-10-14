@@ -110,7 +110,7 @@ func (s *Server) handleInspect(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	sheets, err := s.analyze(up)
+	sheets, err := s.analyze(r.Context(), up)
 	if err != nil {
 		s.fail(w, err)
 		return

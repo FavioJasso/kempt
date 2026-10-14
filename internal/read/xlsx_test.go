@@ -668,7 +668,9 @@ func TestXLSXStyleCache(t *testing.T) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	must(t, err)
 	defer f.Close()
-	x := &xlsxReader{f: f, styles: map[int]cellStyle{}}
+	parts, err := packageParts(f)
+	must(t, err)
+	x := &xlsxReader{f: f, parts: parts, styles: map[int]cellStyle{}}
 	g, err := x.sheet("Sheet1")
 	must(t, err)
 	if len(x.styles) != 3 { // default, date, money

@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -167,8 +168,9 @@ func (up *upload) applyFields(f map[string]string) error {
 }
 
 // checkZip rejects XLSX uploads whose uncompressed size is unreasonable.
+// Only real zip archives count: a CSV may start with "PK" ("PKG_ID,...").
 func checkZip(data []byte, maxUpload int64) error {
-	if !bytes.HasPrefix(data, []byte("PK")) {
+	if !bytes.HasPrefix(data, []byte("PK\x03\x04")) {
 		return nil
 	}
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -185,9 +187,15 @@ func checkZip(data []byte, maxUpload int64) error {
 	return nil
 }
 
-// analyze reads and plans an upload.
-func (s *Server) analyze(up *upload) ([]*plan.Sheet, error) {
-	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows, MaxCells: s.maxCells})
+// analyze reads and plans an upload, at most a few at a time: reading a
+// large workbook takes hundreds of megabytes.
+func (s *Server) analyze(ctx context.Context, up *upload) ([]*plan.Sheet, error) {
+	release, err := acquire(ctx, s.analyses)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows, MaxCells: s.maxCells, CalcLimit: s.calcLimit})
 	if err != nil {
 		switch {
 		case errors.Is(err, read.ErrTooManyRows):

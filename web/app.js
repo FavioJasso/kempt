@@ -23,7 +23,7 @@ const state = {
   table: 0,
   dialect: "postgres",
   tab: "clean",
-  load: null, // {schema, table, tables, queryEnabled, expiresAt}
+  load: null, // {schema, token, table, tables, queryEnabled, expiresAt}
   cells: null, // Map "r,c" → td (merge-covered cells map to their anchor)
   active: null,
 };
@@ -152,7 +152,7 @@ async function runQuery() {
     const res = await api("/api/query", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ schema: state.load.schema, sql: $("#sql").value }),
+      body: JSON.stringify({ schema: state.load.schema, token: state.load.token, sql: $("#sql").value }),
     });
     out.append(resultTable(res.columns, res.rows));
     meta.textContent = `${res.rowCount} row${res.rowCount === 1 ? "" : "s"}${res.truncated ? " (first 100 shown)" : ""} · ${res.elapsedMs} ms`;

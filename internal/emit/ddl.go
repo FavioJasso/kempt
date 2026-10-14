@@ -29,6 +29,7 @@ const sqliteExactDigits = 15
 type DDLOptions struct {
 	Schema      string // Postgres schema, MySQL database, or SQLite attached database; "" = unqualified
 	IfNotExists bool
+	NoComments  bool // leave out table and column comments (the original headers)
 }
 
 // DDL renders the CREATE TABLE statement for p in dialect, plus column and
@@ -39,6 +40,15 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 	table := QualifiedTable(d, opts.Schema, p.Table)
 	types := columnTypes(p, d)
 	comment := tableComment(p)
+	cols := p.Columns
+	if opts.NoComments {
+		comment = ""
+		cols = make([]plan.Column, len(p.Columns))
+		copy(cols, p.Columns)
+		for i := range cols {
+			cols[i].Comment = ""
+		}
+	}
 
 	var b strings.Builder
 	switch d {
@@ -67,12 +77,12 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 		b.WriteString(" -- " + oneLine(comment))
 	}
 	b.WriteString("\n")
-	for i, c := range p.Columns {
+	for i, c := range cols {
 		b.WriteString("  " + QuoteIdent(d, c.Name) + " " + types[i])
 		if d == infer.MySQL && c.Comment != "" {
 			b.WriteString(" COMMENT " + Literal(d, truncateRunes(mysqlComment(c.Comment), mysqlColumnComment)))
 		}
-		if i < len(p.Columns)-1 {
+		if i < len(cols)-1 {
 			b.WriteString(",")
 		}
 		if d == infer.SQLite && c.Comment != "" {
@@ -89,7 +99,7 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 	}
 	b.WriteString(";\n")
 	if d == infer.Postgres {
-		for _, c := range p.Columns {
+		for _, c := range cols {
 			if c.Comment != "" {
 				fmt.Fprintf(&b, "COMMENT ON COLUMN %s.%s IS %s;\n", table, QuoteIdent(d, c.Name), Literal(d, c.Comment))
 			}

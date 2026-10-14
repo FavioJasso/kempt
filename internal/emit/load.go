@@ -43,6 +43,9 @@ type LoadOptions struct {
 	IfExists  string // fail (default) | replace | append
 	Schema    string // Postgres schema (created if missing), MySQL database, or SQLite attached database
 	BatchRows int    // rows per INSERT for MySQL and SQLite; 0 = 500
+	// NoComments leaves out the table and column comments, which hold the
+	// original header text, e.g. where other database users can read them.
+	NoComments bool
 }
 
 // LoadResult reports one loaded table.
@@ -419,7 +422,7 @@ func mysqlCreate(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOpt
 			defer conn.ExecContext(context.WithoutCancel(ctx), "SET SESSION innodb_strict_mode = DEFAULT")
 		}
 	}
-	if _, err := conn.ExecContext(ctx, DDL(p, infer.MySQL, DDLOptions{Schema: opts.Schema})); err != nil {
+	if _, err := conn.ExecContext(ctx, DDL(p, infer.MySQL, DDLOptions{Schema: opts.Schema, NoComments: opts.NoComments})); err != nil {
 		return fmt.Errorf("emit: create %s: %w", resultName(opts.Schema, p.Table), err)
 	}
 	return nil
@@ -480,7 +483,7 @@ func prepareTable(ctx context.Context, d string, exists bool, p *plan.Plan, opts
 			}
 		}
 	}
-	ddl := DDL(p, d, DDLOptions{Schema: opts.Schema, IfNotExists: mode == IfExistsAppend})
+	ddl := DDL(p, d, DDLOptions{Schema: opts.Schema, IfNotExists: mode == IfExistsAppend, NoComments: opts.NoComments})
 	if err := exec(ddl); err != nil {
 		return fmt.Errorf("emit: create %s: %w", name, err)
 	}

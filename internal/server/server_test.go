@@ -296,10 +296,15 @@ func TestPostgresLoadQuery(t *testing.T) {
 		}
 	}()
 
-	query := func(sql string) (int, map[string]any) {
-		b, _ := json.Marshal(queryRequest{Schema: schema, SQL: sql})
+	token, _ := out["token"].(string)
+	if !tokenRe.MatchString(token) {
+		t.Fatalf("load returned no token: %v", out)
+	}
+	queryAs := func(schema, token, sql string) (int, map[string]any) {
+		b, _ := json.Marshal(queryRequest{Schema: schema, Token: token, SQL: sql})
 		return post(t, ts.URL+"/api/query", "application/json", bytes.NewReader(b))
 	}
+	query := func(sql string) (int, map[string]any) { return queryAs(schema, token, sql) }
 	status, out = query("SELECT department, sum(fy2025_budget) AS total FROM budget_summary GROUP BY 1 ORDER BY 1")
 	if status != 200 {
 		t.Fatalf("query %d: %v", status, out)
@@ -331,6 +336,86 @@ func TestPostgresLoadQuery(t *testing.T) {
 		t.Fatalf("truncation %d %v", status, out["truncated"])
 	}
 
+	// The schema name alone grants nothing: every role can list schema
+	// names, so the token from /api/load is the credential.
+	if status, _ := queryAs(schema, "", "SELECT 1"); status != http.StatusBadRequest {
+		t.Errorf("no token: status %d", status)
+	}
+	if status, _ := queryAs(schema, strings.Repeat("0", 32), "SELECT 1"); status != http.StatusNotFound {
+		t.Errorf("wrong token: status %d", status)
+	}
+	if status, _ := queryAs(schema, "not-a-token", "SELECT 1"); status != http.StatusNotFound {
+		t.Errorf("malformed token: status %d", status)
+	}
+	s.cfg.Demo = true // demo loads leave out comments; the limiter stays off
+	body, ct = form(t, "", map[string]string{"sample": "tidy.csv"})
+	status, other := post(t, ts.URL+"/api/load", ct, body)
+	s.cfg.Demo = false
+	if status != 200 {
+		t.Fatalf("second load %d: %v", status, other)
+	}
+	otherSchema := other["schema"].(string)
+	defer func() {
+		conn, err := s.pool.Acquire(context.Background())
+		if err == nil {
+			s.dropSchema(context.Background(), conn.Conn(), otherSchema)
+			conn.Release()
+		}
+	}()
+	if status, _ := queryAs(otherSchema, token, "SELECT 1"); status != http.StatusNotFound {
+		t.Errorf("another load's token opened %s: status %d", otherSchema, status)
+	}
+	if status, _ := queryAs(otherSchema, other["token"].(string), "SELECT count(*) FROM tidy"); status != 200 {
+		t.Errorf("own token: status %d", status)
+	}
+	var comments int
+	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_description d
+		JOIN pg_class c ON c.oid = d.objoid JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1`, otherSchema).Scan(&comments); err != nil || comments != 0 {
+		t.Errorf("demo load left %d comments (err %v)", comments, err)
+	}
+	if err := s.pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_description d
+		JOIN pg_class c ON c.oid = d.objoid JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = $1`, schema).Scan(&comments); err != nil || comments == 0 {
+		t.Errorf("non-demo load has no comments (err %v)", err)
+	}
+
+	// The database cuts values and handles any column shape.
+	status, out = query("SELECT g, repeat('z', 10000000) AS big FROM generate_series(1, 3) g")
+	if status != 200 {
+		t.Fatalf("big values %d: %v", status, out)
+	}
+	if v := out["rows"].([]any)[0].([]any)[1].(string); len([]rune(v)) != maxCell+1 || !strings.HasSuffix(v, "…") {
+		t.Errorf("big value has %d characters", len([]rune(v)))
+	}
+	status, out = query("SELECT 1, 'a', true, NULL::int, '{1,2}'::int[]")
+	if status != 200 || fmt.Sprint(out["columns"]) != "[?column? ?column? ?column? int4 int4]" ||
+		fmt.Sprint(out["rows"]) != "[[1 a true <nil> {1,2}]]" {
+		t.Errorf("shapes %d: %v %v", status, out["columns"], out["rows"])
+	}
+	if status, out = query("SELECT FROM budget_summary"); status != 200 || len(out["rows"].([]any)) != 7 {
+		t.Errorf("zero columns %d: %v", status, out)
+	}
+	if status, out = query("EXPLAIN SELECT * FROM budget_summary"); status != 200 || len(out["rows"].([]any)) == 0 {
+		t.Errorf("explain %d: %v", status, out)
+	}
+	if status, out = query("SELECT $1::int"); status != http.StatusBadRequest {
+		t.Errorf("parameter placeholder %d: %v", status, out)
+	}
+
+	// The janitor only drops roles kempt marked as its own.
+	for _, st := range []string{
+		"DROP ROLE IF EXISTS demo_readonly", "CREATE ROLE demo_readonly NOLOGIN",
+		"DROP ROLE IF EXISTS demo_zzzzzzzz", "CREATE ROLE demo_zzzzzzzz NOLOGIN",
+		"COMMENT ON ROLE demo_zzzzzzzz IS '" + roleComment + "2020-01-01T00:00:00Z'",
+	} {
+		if _, err := s.pool.Exec(context.Background(), st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer s.pool.Exec(context.Background(), "DROP ROLE IF EXISTS demo_readonly")
+	defer s.pool.Exec(context.Background(), "DROP ROLE IF EXISTS demo_zzzzzzzz")
+
 	// The janitor leaves fresh schemas alone and drops expired ones.
 	if n, err := s.sweep(context.Background(), time.Now().Add(-time.Hour)); err != nil || n != 0 {
 		t.Fatalf("sweep fresh: %d %v", n, err)
@@ -340,6 +425,17 @@ func TestPostgresLoadQuery(t *testing.T) {
 	}
 	if status, _ := query("SELECT 1"); status != http.StatusNotFound {
 		t.Fatalf("query after sweep status %d", status)
+	}
+	roles := func(name string) bool {
+		var ok bool
+		s.pool.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", name).Scan(&ok)
+		return ok
+	}
+	if !roles("demo_readonly") {
+		t.Error("the janitor dropped a role kempt did not create")
+	}
+	if roles("demo_zzzzzzzz") || roles(schema) {
+		t.Error("the janitor kept an orphaned kempt role")
 	}
 }
 
@@ -391,5 +487,13 @@ func TestRateLimitIgnoresSpoofedXFF(t *testing.T) {
 	}
 	if last != http.StatusTooManyRequests {
 		t.Fatalf("spoofed X-Forwarded-For bypassed the limit: last status %d", last)
+	}
+}
+
+func TestCSVStartingWithPK(t *testing.T) {
+	ts := newTestServer(t, Config{})
+	body, ct := form(t, "pk.csv", map[string]string{"file": "PKG_ID,Name\n1,a\n2,b\n3,c\n"})
+	if status, out := post(t, ts.URL+"/api/inspect", ct, body); status != 200 {
+		t.Fatalf("status %d: %v", status, out)
 	}
 }
