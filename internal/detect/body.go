@@ -240,8 +240,14 @@ func (s *sheet) blankRuns(rg *Region, from, to, c1, c2 int) {
 		if end > r {
 			what = fmt.Sprintf("Rows %d–%d are blank", r+1, end+1)
 		}
+		// One blank row is routine; two or more could also have started a
+		// new table, which detection decided against, so say so.
+		conf, why := 1.0, what+" inside the table; skipped."
+		if end > r {
+			conf, why = 0.7, what+" inside the table; skipped. The rows below have no header of their own and fit this table's columns, so they were kept as part of it rather than split into a new table."
+		}
 		rg.Decisions = append(rg.Decisions, grid.NewDecision(grid.KBlankRow, s.g.Sheet,
-			grid.Range{R1: r, C1: c1, R2: end, C2: c2}, 1, what+" inside the table; skipped."))
+			grid.Range{R1: r, C1: c1, R2: end, C2: c2}, conf, why))
 		r = end
 	}
 }

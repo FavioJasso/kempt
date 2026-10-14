@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -33,17 +35,39 @@ func serveCmd() *cobra.Command {
 				}
 			}
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), nil))
+			// On Railway the edge puts the client address in X-Real-IP; the
+			// right-most X-Forwarded-For entry is Railway's own.
+			onRailway := os.Getenv("RAILWAY_PROJECT_ID") != ""
+			realIP := os.Getenv("KEMPT_CLIENT_IP_HEADER")
+			if realIP == "" && onRailway {
+				realIP = "X-Real-IP"
+			}
+			limit := server.MemoryLimit()
+			switch {
+			case os.Getenv("GOMEMLIMIT") != "":
+				// The operator set Go's soft limit; size the server from it.
+				if soft := debug.SetMemoryLimit(-1); soft < math.MaxInt64 {
+					limit = soft / 8 * 10
+				}
+			case limit > 0:
+				// Make the garbage collector work harder near the container's
+				// limit instead of letting the kernel kill the process.
+				debug.SetMemoryLimit(limit / 10 * 8)
+			}
+			if limit > 0 {
+				log.Info("memory", "limit_mib", limit>>20, "go_soft_limit_mib", debug.SetMemoryLimit(-1)>>20)
+			}
 			cfg := server.Config{
-				Addr:    addr,
-				Demo:    envTrue(os.Getenv("KEMPT_DEMO")),
-				Web:     kempt.Web(),
-				Samples: kempt.Samples(),
-				Version: version,
-				Logger:  log,
-				Secret:  []byte(os.Getenv("KEMPT_SECRET")),
-				// Railway (and any proxy set with KEMPT_TRUST_PROXY=1) puts the
-				// client address in X-Forwarded-For.
-				TrustProxy: envTrue(os.Getenv("KEMPT_TRUST_PROXY")) || os.Getenv("RAILWAY_PROJECT_ID") != "",
+				Addr:         addr,
+				Demo:         envTrue(os.Getenv("KEMPT_DEMO")),
+				Web:          kempt.Web(),
+				Samples:      kempt.Samples(),
+				Version:      version,
+				Logger:       log,
+				Secret:       []byte(os.Getenv("KEMPT_SECRET")),
+				TrustProxy:   envTrue(os.Getenv("KEMPT_TRUST_PROXY")) || onRailway,
+				RealIPHeader: realIP,
+				MemoryLimit:  limit,
 			}
 			target, err := dsn.Resolve(dsnFlag, os.Getenv)
 			switch {

@@ -350,6 +350,27 @@ func TestSingleBlankRowSplit(t *testing.T) {
 	if find(res.Regions[0].Decisions, grid.KBlankRow) == nil {
 		t.Fatalf("decisions %v", kinds(res.Regions[0].Decisions))
 	}
+	if d := find(res.Regions[0].Decisions, grid.KBlankRow); d == nil || d.Confidence != 1 {
+		t.Fatalf("one blank row: %+v", d)
+	}
+	// Two blank rows before a headerless block that fits: kept as one table,
+	// but at lower confidence, since a split was possible.
+	g = mk(t, [][]any{
+		{"Name", "Qty"},
+		{"Ann", 1},
+		{"Bob", 2},
+		{},
+		{},
+		{"Cy", 3},
+		{"Di", 4},
+	})
+	res = Detect(g, Options{})
+	if len(res.Regions) != 1 || len(res.Regions[0].Data) != 4 {
+		t.Fatalf("two blank rows: regions = %d", len(res.Regions))
+	}
+	if d := find(res.Regions[0].Decisions, grid.KBlankRow); d == nil || d.Confidence >= 1 || !strings.Contains(d.Reason, "rather than split") {
+		t.Fatalf("two blank rows: %+v", d)
+	}
 }
 
 func TestMergedFillDown(t *testing.T) {

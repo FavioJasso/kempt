@@ -64,6 +64,12 @@ type Config struct {
 	// TrustProxy makes the rate limiter key on X-Forwarded-For, which only a
 	// trusted reverse proxy in front of the server can vouch for.
 	TrustProxy bool
+	// RealIPHeader names a header in which the trusted proxy puts the client
+	// address (X-Real-IP on Railway); it wins over X-Forwarded-For.
+	RealIPHeader string
+	// MemoryLimit is the container's memory limit in bytes (0 = unknown).
+	// Below 512 MiB per spreadsheet read, fewer reads run at once.
+	MemoryLimit int64
 	// Secret derives per-schema passwords for query roles. Empty means a
 	// random secret per process (schemas become unqueryable after restart).
 	Secret []byte
@@ -103,6 +109,9 @@ func New(cfg Config) (*Server, error) {
 		s.maxUpload, s.maxRows, s.maxCells, s.calcBytes, s.maxUnzip = demoMaxUpload, demoMaxRows, demoMaxCells, demoCalcBytes, demoMaxUnzip
 		s.analyses = make(chan struct{}, demoAnalyses)
 		s.limiter = newLimiter(demoRate, time.Minute)
+	}
+	if n := analysisSlots(cap(s.analyses), cfg.MemoryLimit); n != cap(s.analyses) {
+		s.analyses = make(chan struct{}, n)
 	}
 	if cfg.DSN != nil {
 		if cfg.DSN.Dialect != "postgres" {
@@ -168,7 +177,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
-	s.log.Info("kempt serve listening", "addr", ln.Addr().String(), "demo", s.cfg.Demo, "load", s.pool != nil)
+	s.log.Info("kempt serve listening", "addr", ln.Addr().String(), "demo", s.cfg.Demo, "load", s.pool != nil, "reads_at_once", cap(s.analyses))
 	select {
 	case err := <-errc:
 		return err
@@ -204,7 +213,7 @@ func (s *Server) routes() http.Handler {
 func (s *Server) limited(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.limiter != nil {
-			if ok, wait := s.limiter.allow(clientIP(r, s.cfg.TrustProxy)); !ok {
+			if ok, wait := s.limiter.allow(clientIP(r, s.cfg.TrustProxy, s.cfg.RealIPHeader)); !ok {
 				w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 				writeError(w, http.StatusTooManyRequests, "rate limit: the public demo allows 10 requests per minute; try again shortly")
 				return

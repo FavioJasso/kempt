@@ -204,7 +204,7 @@ var (
 )
 
 // ExcelSerial converts an Excel serial date (0 < v < 2958466) to a UTC time
-// rounded to the nearest second. hasTime is set when the time of day is not
+// rounded to the nearest millisecond. hasTime is set when the time of day is not
 // midnight. In the 1900 system serials below 60 follow Excel's calendar
 // (1 = 1900-01-01), and 60, Excel's fictitious 1900-02-29, is rejected.
 func ExcelSerial(v float64, date1904 bool) (t time.Time, hasTime bool, ok bool) {
