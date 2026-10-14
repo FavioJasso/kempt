@@ -352,7 +352,8 @@ func TestDescribe(t *testing.T) {
 func TestRedactPasswordWithAtAndSlash(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"postgres://kempt:p@ss/w0rd@localhost:5432/kempt", "postgres://kempt:****@localhost:5432/kempt"},
-		{"postgres://u:pw@host/db?opt=a@b", "postgres://u:****@host/db?opt=a@b"},
+		{"postgres://u:pw@host/db?opt=a@b", "postgres://u:****@b"},
+		{"postgres://u:Pa@ss?word123@localhost/db", "postgres://u:****@localhost/db"},
 		{"mysql://root:a/b@c@127.0.0.1:3306/db", "mysql://root:****@127.0.0.1:3306/db"},
 	}
 	for _, tt := range tests {

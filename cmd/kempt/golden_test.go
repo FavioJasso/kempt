@@ -265,3 +265,15 @@ func sqliteText(v any, base string) string {
 		return fmt.Sprintf("%T(%v)", v, v)
 	}
 }
+
+func TestTableFlagTooLong(t *testing.T) {
+	root := newRoot()
+	var out, errb bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetArgs([]string{"ddl", "--table", strings.Repeat("t", 64), filepath.Join(fixtures, "tidy.csv")})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--table") {
+		t.Fatalf("err = %v, want a --table length error", err)
+	}
+}

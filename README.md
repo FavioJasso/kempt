@@ -111,13 +111,16 @@ Preview (first 4 of 7 rows; ∅ = NULL):
 |---|---|
 | `(1,234)`, `500-` | `-1234`, `-500` |
 | `$1,200.50`, `€15`, `£3` | `1200.50`, `15`, `3` (symbol logged, kept in the comment) |
-| `12%` | `12` in a column suffixed `_pct` (not divided by 100) |
+| `12%`, or `0.12` formatted as a percentage in Excel | `12` in a column suffixed `_pct` (not divided by 100) |
+| `1.234,56` and `12,50` on a sheet that only uses decimal commas | `1234.56`, `12.50` (logged once per sheet) |
 | `N/A`, `NA`, `-`, `—`, `null`, `none`, empty | `NULL` |
 | `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` | `NULL` (logged as Excel errors) |
-| Excel serial dates, `2026-03-15`, `03/15/2026`, `3/15/26`, `Mar 15, 2026`, `15-Mar-2026` | `DATE` / `TIMESTAMP` |
-| `02134`, `007` | kept as text, so leading zeros survive |
+| Excel serial dates, `2026-03-15`, `03/15/2026`, `3/15/26`, `Mar 15, 2026`, `15-Mar-2026` | `DATE` / `TIMESTAMP` (two-digit years follow Excel: `00`–`29` are 2000s, `30`–`99` are 1900s) |
+| `09:30`, `1:15 PM` | kept as text, never turned into a date |
+| Excel cells formatted as times or durations (`h:mm`, `[h]:mm:ss`) | `HH:MM:SS` text such as `09:30:00` (logged) instead of a fraction of a day |
+| `02134`, `007`, and numbers formatted with leading zeros (`00000`) | kept as text, so leading zeros survive |
 
-**Column names** are lowercase snake_case. Accents are transliterated, and `%`, `#` and `&` become `pct`, `num` and `and`. camelCase is split (`OrderID` → `order_id`), and a leading digit gets a `c_` prefix (`2025 Revenue` → `c_2025_revenue`). Blank headers become `col_<letter>`, and duplicates get `_2`, `_3`. The original header text is kept as the column comment.
+**Column names** are lowercase snake_case. Accents are transliterated, and `%`, `#` and `&` become `pct`, `num` and `and`. camelCase is split (`OrderID` → `order_id`), and a leading digit gets a `c_` prefix (`2025 Revenue` → `c_2025_revenue`). Blank headers become `col_<letter>`, and duplicates get `_2`, `_3`. Names Postgres reserves for system columns (`ctid`, `xmin`, `xmax`, `cmin`, `cmax`, `tableoid`) also get the `c_` prefix. Table and column names are cut to 63 bytes, the Postgres limit. The original header text is kept as the column comment.
 
 Each column gets the narrowest type that parses every non-null value, in the order `bool → int → bigint → decimal(p,s) → date → timestamp → text`. Decimal precision and scale are measured from the data. In MySQL, text becomes `VARCHAR(n)` sized to the next power of two, or `TEXT` beyond 1024.
 
@@ -193,7 +196,9 @@ It prints which source it used, with the password redacted.
 | `mysql://user:pass@host:3306/db` | go-sql-driver/mysql, batched multi-row `INSERT` |
 | `sqlite://path/to/file.db`, `file.db`, `file.sqlite` | modernc.org/sqlite (pure Go) |
 
-`--if-exists fail|replace|append` (default `fail`) decides what happens when the table already exists. `--dry-run` prints the DDL, the first 10 rows, and the report without connecting.
+`--if-exists fail|replace|append` (default `fail`) decides what happens when the table already exists. `append` first checks the existing columns and refuses, without writing anything, when a column is missing or would change the new values (decimals into an integer or a narrower `NUMERIC`, timestamps into a `DATE`). `--dry-run` prints the DDL, the first 10 rows, and the report without connecting.
+
+Postgres and SQLite load every table in one transaction, so a failed load leaves the database unchanged. MySQL commits DDL as it goes: with `fail`, kempt drops the tables it had created before the error; with `replace` and `append`, it prints the tables that were already committed. MySQL loads run in strict mode, so the server rejects a bad value instead of storing a zero or truncating it.
 
 ## Why not csvsql / DuckDB?
 

@@ -1,7 +1,9 @@
 package plan
 
 import (
+	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -198,7 +200,7 @@ func TestDedupeAndTruncate(t *testing.T) {
 	long := "a_very_long_column_name_that_keeps_going_and_going_beyond_sixty_three_bytes"
 	first := dedupe(long, seen)
 	second := dedupe(long, seen)
-	if len(first) > maxIdent || len(second) > maxIdent || first == second || second[len(second)-2:] != "_2" {
+	if len(first) > MaxIdent || len(second) > MaxIdent || first == second || second[len(second)-2:] != "_2" {
 		t.Fatalf("%q %q", first, second)
 	}
 	if got := dedupe("x", map[string]bool{"x": true, "x_2": true}); got != "x_3" {
@@ -266,5 +268,57 @@ func TestDecimalCommaSheet(t *testing.T) {
 	g = mk(t, "us", [][]any{{"Item", "Price", "Qty"}, {"A", "12.50", "1,250"}, {"B", "3.75", "2,500"}})
 	if sh := Build(g, Options{}); hasDecision(sh.Decisions, grid.KDecimalComma) || sh.Tables[0].Rows[0][2] != int64(1250) {
 		t.Fatalf("US sheet: %v %v", sh.Decisions, sh.Tables[0].Rows)
+	}
+}
+
+func TestPostgresSystemColumns(t *testing.T) {
+	g := mk(t, "S", [][]any{
+		{"ctid", "XMIN", "Owner"},
+		{"a", 1, "x"},
+		{"b", 2, "y"},
+	})
+	p := Build(g, Options{}).Tables[0]
+	if got := names(p); !slices.Equal(got, []string{"c_ctid", "c_xmin", "owner"}) {
+		t.Fatalf("names = %v", got)
+	}
+	found := false
+	for _, d := range p.Decisions {
+		if d.Kind == grid.KColumnName && strings.Contains(d.Reason, "Postgres system column") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no decision explains the rename: %+v", p.Decisions)
+	}
+}
+
+func TestLongTableNames(t *testing.T) {
+	long := strings.Repeat("quarterly_", 10) // 100 bytes
+	rows := [][]any{{"A", "B"}, {"x", 1}, {"y", 2}}
+	sh := Build(mk(t, "S", rows), Options{Table: long})
+	if got := sh.Tables[0].Table; len(got) > MaxIdent || !strings.HasPrefix(long, got) {
+		t.Fatalf("table %q (%d bytes)", got, len(got))
+	}
+
+	two := mk(t, "S", [][]any{{"A", "B", "", "", "C", "D"}, {"x", 1, "", "", "y", 2}, {"z", 3, "", "", "w", 4}})
+	sh = Build(two, Options{Table: long})
+	if len(sh.Tables) != 2 {
+		t.Fatalf("want two tables, got %d", len(sh.Tables))
+	}
+	for i, tb := range sh.Tables {
+		if len(tb.Table) > MaxIdent || !strings.HasSuffix(tb.Table, fmt.Sprintf("_%d", i+1)) {
+			t.Errorf("table %d: %q (%d bytes)", i, tb.Table, len(tb.Table))
+		}
+	}
+
+	a := &Sheet{Tables: []*Plan{{Table: sh.Tables[0].Table}}}
+	b := &Sheet{Tables: []*Plan{{Table: sh.Tables[0].Table}}}
+	UniqueTables([]*Sheet{a, b})
+	if got := b.Tables[0].Table; len(got) > MaxIdent || got == a.Tables[0].Table {
+		t.Fatalf("UniqueTables made %q (%d bytes)", got, len(got))
+	}
+
+	if got := truncate("ab日本", 4); got != "ab" {
+		t.Fatalf("truncate split a character: %q", got)
 	}
 }

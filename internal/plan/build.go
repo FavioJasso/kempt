@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/FavioJasso/kempt/internal/detect"
 	"github.com/FavioJasso/kempt/internal/grid"
@@ -11,8 +12,13 @@ import (
 	"github.com/FavioJasso/kempt/internal/normalize"
 )
 
-// maxIdent is the longest identifier kempt emits (Postgres truncates at 63 bytes).
-const maxIdent = 63
+// MaxIdent is the longest identifier kempt emits (Postgres truncates at 63 bytes).
+const MaxIdent = 63
+
+// pgSystemColumns are names Postgres reserves in every table.
+var pgSystemColumns = map[string]bool{
+	"tableoid": true, "xmin": true, "cmin": true, "xmax": true, "cmax": true, "ctid": true,
+}
 
 // Options control detection, inference, and naming.
 type Options struct {
@@ -64,9 +70,10 @@ func Build(g *grid.Grid, opts Options) *Sheet {
 			continue
 		}
 		k++
-		name := base
+		name := truncate(base, MaxIdent)
 		if n > 1 {
-			name = fmt.Sprintf("%s_%d", base, k)
+			suffix := fmt.Sprintf("_%d", k)
+			name = truncate(base, MaxIdent-len(suffix)) + suffix
 		}
 		p := buildTable(g, rg, name, iopts, nulls)
 		sh.Tables = append(sh.Tables, p)
@@ -167,6 +174,10 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 		if (unit == "%" || res.Pct) && !strings.HasSuffix(name, "pct") {
 			name += "_pct"
 		}
+		system := pgSystemColumns[name]
+		if system {
+			name = "c_" + name
+		}
 		fromHeader := unit != ""
 		if unit == "" {
 			unit = res.Unit
@@ -217,6 +228,9 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 		case final != name:
 			p.Decisions = append(p.Decisions, grid.NewDecision(grid.KColumnName, g.Sheet, hdr, 1,
 				fmt.Sprintf("Header %q (column %s) would duplicate an earlier name; renamed %s.", header, letter, final)))
+		case system:
+			p.Decisions = append(p.Decisions, grid.NewDecision(grid.KColumnName, g.Sheet, hdr, 1,
+				fmt.Sprintf("Header %q (column %s) became %s because %s is a Postgres system column name.", header, letter, final, strings.TrimPrefix(name, "c_"))))
 		case final != strings.ToLower(strings.TrimSpace(header)):
 			p.Decisions = append(p.Decisions, grid.NewDecision(grid.KColumnName, g.Sheet, hdr, 1,
 				fmt.Sprintf("Header %q (column %s) became %s.", header, letter, final)))
@@ -226,22 +240,26 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 	return p
 }
 
-// dedupe truncates name to maxIdent bytes and appends _2, _3, ... until it
+// dedupe truncates name to MaxIdent bytes and appends _2, _3, ... until it
 // is unused, then records it.
 func dedupe(name string, seen map[string]bool) string {
-	name = truncate(name, maxIdent)
+	name = truncate(name, MaxIdent)
 	out := name
 	for i := 2; seen[out]; i++ {
 		suffix := fmt.Sprintf("_%d", i)
-		out = truncate(name, maxIdent-len(suffix)) + suffix
+		out = truncate(name, MaxIdent-len(suffix)) + suffix
 	}
 	seen[out] = true
 	return out
 }
 
+// truncate cuts s to at most n bytes without splitting a UTF-8 sequence.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return strings.TrimRight(s[:n], "_")
 }
@@ -254,7 +272,8 @@ func UniqueTables(sheets []*Sheet) {
 		for _, t := range sh.Tables {
 			name := t.Table
 			for i := 2; seen[name]; i++ {
-				name = fmt.Sprintf("%s_%d", t.Table, i)
+				suffix := fmt.Sprintf("_%d", i)
+				name = truncate(t.Table, MaxIdent-len(suffix)) + suffix
 			}
 			t.Table = name
 			seen[name] = true

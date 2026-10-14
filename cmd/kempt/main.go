@@ -56,6 +56,9 @@ func (f *flags) planOptions() (plan.Options, error) {
 	if f.headerRows < 0 || f.skipRows < 0 {
 		return plan.Options{}, errors.New("--header-rows and --skip-rows must not be negative")
 	}
+	if len(f.table) > plan.MaxIdent {
+		return plan.Options{}, fmt.Errorf("--table is %d bytes long; Postgres keeps only the first %d", len(f.table), plan.MaxIdent)
+	}
 	order := strings.ToLower(f.dateOrder)
 	switch order {
 	case "", "auto":
@@ -283,13 +286,15 @@ func loadCmd(f *flags) *cobra.Command {
 			}
 			results, err := emit.Load(cmd.Context(), target.Dialect, target.DSN, ts,
 				emit.LoadOptions{IfExists: ifExists, Schema: schema})
-			if err != nil {
-				return err
-			}
+			// MySQL commits table by table, so a failed load may still have
+			// loaded some tables; say which.
 			for _, r := range results {
 				fmt.Fprintf(stdout, "loaded %d rows into %s\n", r.Rows, r.Table)
 			}
-			return nil
+			if err != nil && len(results) > 0 {
+				return fmt.Errorf("%w (the tables listed above were loaded and committed)", err)
+			}
+			return err
 		},
 	}
 	fl := cmd.Flags()

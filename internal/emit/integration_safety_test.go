@@ -26,6 +26,22 @@ func serverFailPlan(table string) *plan.Plan {
 	return p
 }
 
+// mismatchPlan is rtPlan with column i retyped (or, for i < 0, an extra
+// column), so appending it to an rtPlan table would change values.
+func mismatchPlan(table string, i int, typ infer.Type) *plan.Plan {
+	p := rtPlan(table)
+	if i < 0 {
+		p.Columns = append(p.Columns, col("extra", typ, "Extra"))
+		for r := range p.Rows {
+			p.Rows[r] = append(p.Rows[r], nil)
+		}
+		return p
+	}
+	p.Columns[i].Type = typ
+	p.Columns[i].SQLType = nil
+	return p
+}
+
 // failureCases are loads that must fail without changing a database that
 // holds one loaded table "existing".
 func failureCases(prefix string) []struct {
@@ -43,6 +59,10 @@ func failureCases(prefix string) []struct {
 		{"failed replace", []*plan.Plan{serverFailPlan(prefix + "existing")}, IfExistsReplace},
 		{"failed append", []*plan.Plan{serverFailPlan(prefix + "existing")}, IfExistsAppend},
 		{"fail mode conflict", []*plan.Plan{rtPlan(prefix + "fresh"), rtPlan(prefix + "existing")}, IfExistsFail},
+		{"append missing column", []*plan.Plan{mismatchPlan(prefix+"existing", -1, infer.Type{Base: infer.Text, MaxLen: 5})}, IfExistsAppend},
+		{"append decimals into int", []*plan.Plan{mismatchPlan(prefix+"existing", 2, infer.Type{Base: infer.Decimal, Precision: 12, Scale: 2})}, IfExistsAppend},
+		{"append wider decimals", []*plan.Plan{mismatchPlan(prefix+"existing", 4, infer.Type{Base: infer.Decimal, Precision: 14, Scale: 4})}, IfExistsAppend},
+		{"append timestamps into date", []*plan.Plan{mismatchPlan(prefix+"existing", 5, infer.Type{Base: infer.Timestamp})}, IfExistsAppend},
 	}
 }
 
@@ -90,8 +110,12 @@ func TestPostgresSafety(t *testing.T) {
 	}
 	for _, tt := range failureCases("") {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := Load(ctx, infer.Postgres, url, tt.plans, LoadOptions{Schema: schema, IfExists: tt.mode}); err == nil {
+			_, err := Load(ctx, infer.Postgres, url, tt.plans, LoadOptions{Schema: schema, IfExists: tt.mode})
+			if err == nil {
 				t.Fatal("load succeeded, want an error")
+			}
+			if strings.HasPrefix(tt.name, "append ") && !strings.Contains(err.Error(), "append to") {
+				t.Errorf("err = %v, want the append check to refuse it", err)
 			}
 			if got := tables(); !slices.Equal(got, []string{"existing"}) {
 				t.Errorf("tables = %v, want [existing]", got)
@@ -190,8 +214,12 @@ func TestMySQLSafety(t *testing.T) {
 	}
 	for _, tt := range failureCases(prefix) {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := Load(ctx, infer.MySQL, dsn, tt.plans, LoadOptions{IfExists: tt.mode, BatchRows: 2}); err == nil {
+			_, err := Load(ctx, infer.MySQL, dsn, tt.plans, LoadOptions{IfExists: tt.mode, BatchRows: 2})
+			if err == nil {
 				t.Fatal("load succeeded, want an error")
+			}
+			if strings.HasPrefix(tt.name, "append ") && !strings.Contains(err.Error(), "append to") {
+				t.Errorf("err = %v, want the append check to refuse it", err)
 			}
 			if got := tables(); !slices.Equal(got, []string{"existing"}) {
 				t.Errorf("tables = %v, want [existing]", got)

@@ -300,3 +300,17 @@ func TestLiteral(t *testing.T) {
 		}
 	}
 }
+
+func TestMySQLComment(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"plain", "plain"},
+		{"naïve café 日本語", "naïve café 日本語"},
+		{"ok 🙂 done", "ok U+1F642 done"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := mysqlComment(tt.in); got != tt.want {
+			t.Errorf("mysqlComment(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

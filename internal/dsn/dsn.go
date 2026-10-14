@@ -121,11 +121,13 @@ func mysqlDSN(s string) (string, error) {
 	}
 	db := strings.TrimPrefix(u.Path, "/")
 	if strings.Contains(db, "/") {
-		return "", fmt.Errorf("database name %q contains '/'", db)
+		// Usually a "/" in the password; the path would quote part of it.
+		return "", fmt.Errorf("database name contains '/' (%s)", hint)
 	}
 	q, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return "", fmt.Errorf("invalid query string: %w", err)
+		// The parse error quotes the raw text, which may hold a password.
+		return "", errors.New("invalid query string (percent-encode special characters)")
 	}
 	if q.Has("strict") {
 		return "", errors.New(`the "strict" parameter was removed from go-sql-driver/mysql`)
@@ -237,17 +239,10 @@ func sqliteLike(s string) bool {
 // "/", "?", or "#". A password holding one of those unescaped pushes the
 // "@" further right, so fall back to the last "@" anywhere.
 func redactUserinfo(rest string) string {
-	// A password may hold unescaped "@" or "/" ("p@ss/w0rd"), so the user
-	// info ends at the last "@" before the query string. That hides too much
-	// rather than too little when a path itself holds an "@".
-	head := rest
-	if i := strings.IndexByte(rest, '?'); i >= 0 {
-		head = rest[:i]
-	}
-	at := strings.LastIndex(head, "@")
-	if at < 0 {
-		at = strings.LastIndex(rest, "@")
-	}
+	// A password may hold unescaped "@", "/" or "?" ("p@ss?w0rd"), so the
+	// user info ends at the last "@" anywhere. That hides too much rather
+	// than too little when the path or query itself holds an "@".
+	at := strings.LastIndex(rest, "@")
 	if at < 0 {
 		return rest
 	}

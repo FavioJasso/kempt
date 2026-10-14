@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "github.com/go-sql-driver/mysql" // registers "mysql"
 	"github.com/jackc/pgx/v5"
@@ -583,6 +584,9 @@ func checkPlans(d string, plans []*plan.Plan, schema string) error {
 		if err := checkPlan(p); err != nil {
 			return err
 		}
+		if err := checkIdent(d, p.Table); err != nil {
+			return err
+		}
 		key := p.Table
 		if d != infer.Postgres {
 			key = strings.ToLower(key) // MySQL and SQLite table names may be case-insensitive
@@ -603,6 +607,19 @@ func checkPlan(p *plan.Plan) error {
 		return errors.New("emit: plan has no table name")
 	case len(p.Columns) == 0:
 		return fmt.Errorf("emit: table %s has no columns", p.Table)
+	}
+	return nil
+}
+
+// checkIdent rejects a table name the database would silently truncate
+// (Postgres, 63 bytes) or refuse (MySQL, 64 characters): truncation can make
+// two tables collide or load into a table with a different name.
+func checkIdent(d, name string) error {
+	switch {
+	case d == infer.Postgres && len(name) > 63:
+		return fmt.Errorf("emit: table name %s is %d bytes; Postgres allows 63", name, len(name))
+	case d == infer.MySQL && utf8.RuneCountInString(name) > 64:
+		return fmt.Errorf("emit: table name %s is %d characters; MySQL allows 64", name, utf8.RuneCountInString(name))
 	}
 	return nil
 }

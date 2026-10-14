@@ -184,7 +184,7 @@ func TestMySQL(t *testing.T) {
 	t.Cleanup(func() { db.Close() }) // registered first, so it runs after the drops below
 	table := fmt.Sprintf("kempt_test_%d", time.Now().UnixNano())
 	t.Cleanup(func() {
-		for _, name := range []string{table, table + "_lit"} {
+		for _, name := range []string{table, table + "_lit", table + "_lax"} {
 			if _, err := db.Exec("DROP TABLE IF EXISTS " + QuoteIdent(infer.MySQL, name)); err != nil {
 				t.Errorf("drop %s: %v", name, err)
 			}
@@ -244,6 +244,20 @@ func TestMySQL(t *testing.T) {
 		}
 	}
 	compareText(t, p, read(p), want)
+
+	// Loads set their own sql_mode: a server without strict mode, or with
+	// NO_BACKSLASH_ESCAPES, must neither change values nor accept bad ones.
+	lax := dsn + "?sql_mode=%27NO_BACKSLASH_ESCAPES%27"
+	if strings.Contains(dsn, "?") {
+		lax = dsn + "&sql_mode=%27NO_BACKSLASH_ESCAPES%27"
+	}
+	if _, err := Load(ctx, infer.MySQL, lax, []*plan.Plan{p}, LoadOptions{IfExists: "replace", BatchRows: 2}); err != nil {
+		t.Fatal(err)
+	}
+	compareText(t, p, read(p), want)
+	if _, err := Load(ctx, infer.MySQL, lax, []*plan.Plan{serverFailPlan(table + "_lax")}, LoadOptions{}); err == nil {
+		t.Error("a non-strict session accepted text in an INT column")
+	}
 
 	lit := rtPlan(table + "_lit")
 	if _, err := db.Exec(DDL(lit, infer.MySQL, DDLOptions{})); err != nil {

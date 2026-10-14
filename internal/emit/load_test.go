@@ -348,3 +348,73 @@ func TestLoadSQLiteSchema(t *testing.T) {
 		t.Errorf("second load: err = %v, want ErrTableExists", err)
 	}
 }
+
+func TestCheckIdent(t *testing.T) {
+	long63, long64 := strings.Repeat("a", 63), strings.Repeat("a", 64)
+	wide := strings.Repeat("é", 40) // 40 characters, 80 bytes
+	tests := []struct {
+		d, name string
+		ok      bool
+	}{
+		{infer.Postgres, long63, true},
+		{infer.Postgres, long64, false},
+		{infer.Postgres, wide, false},
+		{infer.MySQL, long64, true},
+		{infer.MySQL, long64 + "a", false},
+		{infer.MySQL, wide, true},
+		{infer.SQLite, strings.Repeat("a", 200), true},
+	}
+	for _, tt := range tests {
+		if err := checkIdent(tt.d, tt.name); (err == nil) != tt.ok {
+			t.Errorf("checkIdent(%s, %d bytes) = %v, want ok=%v", tt.d, len(tt.name), err, tt.ok)
+		}
+	}
+	p := rtPlan(long64)
+	if _, err := Load(context.Background(), infer.Postgres, "postgres://unused", []*plan.Plan{p}, LoadOptions{}); err == nil || !strings.Contains(err.Error(), "63") {
+		t.Errorf("Load with a 64-byte Postgres table name: %v", err)
+	}
+}
+
+func TestCheckAppend(t *testing.T) {
+	num := func(p, s int64) existingColumn {
+		return existingColumn{dataType: "numeric", precision: sql.NullInt64{Int64: p, Valid: true}, scale: sql.NullInt64{Int64: s, Valid: true}}
+	}
+	plain := func(dt string) existingColumn { return existingColumn{dataType: dt} }
+	plan1 := func(typ infer.Type) *plan.Plan {
+		return &plan.Plan{Table: "t", Columns: []plan.Column{col("v", typ, "")}}
+	}
+	dec := func(p, s int) infer.Type { return infer.Type{Base: infer.Decimal, Precision: p, Scale: s} }
+	tests := []struct {
+		name string
+		have existingColumn
+		typ  infer.Type
+		ok   bool
+	}{
+		{"int into integer", plain("integer"), infer.Type{Base: infer.Int}, true},
+		{"int into bigint", plain("bigint"), infer.Type{Base: infer.Int}, true},
+		{"decimal into numeric with room", num(12, 2), dec(10, 2), true},
+		{"decimal into unbounded numeric", plain("numeric"), dec(30, 10), true},
+		{"decimal into integer", plain("integer"), dec(10, 2), false},
+		{"decimal into tinyint bool", plain("tinyint"), dec(4, 1), false},
+		{"more scale", num(12, 2), dec(12, 4), false},
+		{"more integer digits", num(12, 2), dec(14, 2), false},
+		{"bigint into narrow numeric", num(10, 0), infer.Type{Base: infer.BigInt}, false},
+		{"bigint into wide numeric", num(20, 0), infer.Type{Base: infer.BigInt}, true},
+		{"timestamp into date", plain("date"), infer.Type{Base: infer.Timestamp}, false},
+		{"timestamp into timestamp", plain("timestamp without time zone"), infer.Type{Base: infer.Timestamp}, true},
+		{"date into timestamp", plain("timestamp without time zone"), infer.Type{Base: infer.Date}, true},
+		{"text into text", plain("text"), infer.Type{Base: infer.Text}, true},
+	}
+	for _, tt := range tests {
+		err := checkAppend(map[string]existingColumn{"v": tt.have}, plan1(tt.typ), "t")
+		if (err == nil) != tt.ok {
+			t.Errorf("%s: err = %v, want ok=%v", tt.name, err, tt.ok)
+		}
+	}
+	if err := checkAppend(map[string]existingColumn{"other": plain("text")}, plan1(infer.Type{Base: infer.Text}), "t"); err == nil || !strings.Contains(err.Error(), "no column v") {
+		t.Errorf("missing column: %v", err)
+	}
+	if err := checkAppend(map[string]existingColumn{"v": plain("text")}, &plan.Plan{Table: "t", Columns: []plan.Column{col("V", infer.Type{Base: infer.Text}, "")}}, "t"); err != nil {
+		t.Errorf("column names match case-insensitively: %v", err)
+	}
+}
