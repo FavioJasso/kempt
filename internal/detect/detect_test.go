@@ -2,6 +2,7 @@ package detect
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -492,5 +493,42 @@ func TestIdenticalHeaderLabels(t *testing.T) {
 	rg := Detect(g, Options{}).Regions[0]
 	if rg.Skipped || !reflect.DeepEqual(rg.Header, []int{0}) || len(rg.Data) != 2 {
 		t.Fatalf("skipped %v header %v data %v", rg.Skipped, rg.Header, rg.Data)
+	}
+}
+
+func TestMatchColumns(t *testing.T) {
+	cols := []HeaderCol{
+		{Col: 0, Parts: []string{"Region"}},
+		{Col: 1, Parts: []string{"Name"}},
+		{Col: 2, Parts: []string{"Name"}},
+		{Col: 3, Parts: []string{"Sales in thousands"}},
+		{Col: 4, Parts: []string{"FY2025 ($000s)", "Budget"}},
+		{Col: 5, Parts: []string{"Margin (%)"}},
+		{Col: 6, Parts: []string{"xmin"}},
+		{Col: 7, Parts: []string{""}},
+	}
+	tests := []struct {
+		want      string
+		idx       []int
+		ambiguous bool
+	}{
+		{"name", []int{1}, false},
+		{"name_2", []int{2}, false},
+		{"sales", []int{3}, false},
+		{"fy2025_budget", []int{4}, false},
+		{"margin_pct", []int{5}, false},
+		{"c_xmin", []int{6}, false},
+		{"col_h", []int{7}, false},
+		{"C", []int{2}, false},
+		{"Region", []int{0}, false},
+		{"Name", []int{1, 2}, true},
+		{"Budget", []int{4}, false},
+		{"nothing", nil, false},
+	}
+	for _, tt := range tests {
+		idx, amb := matchColumns(tt.want, cols)
+		if !slices.Equal(idx, tt.idx) || amb != tt.ambiguous {
+			t.Errorf("matchColumns(%q) = %v, %v; want %v, %v", tt.want, idx, amb, tt.idx, tt.ambiguous)
+		}
 	}
 }

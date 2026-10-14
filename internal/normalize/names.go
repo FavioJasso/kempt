@@ -89,3 +89,34 @@ func Slug(s string) string {
 	}
 	return "sheet"
 }
+
+// ColumnBase names a column from its header parts (one per header row):
+// each part loses its unit ("Sales ($000s)" → sales) and is snake_cased, the
+// parts join with "_", and a blank header becomes col_<letter>. It also
+// returns the unit and the part it came from.
+func ColumnBase(parts []string, letter string) (name, unit, unitPart string) {
+	var names []string
+	for _, part := range parts {
+		rest, u := ExtractUnit(part)
+		if u != "" {
+			unit, unitPart = u, part
+		}
+		if sn := SnakeCase(rest); sn != "" {
+			names = append(names, sn)
+		}
+	}
+	name = strings.Join(names, "_")
+	if name == "" {
+		name = "col_" + strings.ToLower(letter)
+	}
+	return name, unit, unitPart
+}
+
+// pgSystemColumns are names Postgres reserves in every table.
+var pgSystemColumns = map[string]bool{
+	"tableoid": true, "xmin": true, "cmin": true, "xmax": true, "cmax": true, "ctid": true,
+}
+
+// SystemColumn reports whether name is a Postgres system column name, which
+// a table cannot use for its own column.
+func SystemColumn(name string) bool { return pgSystemColumns[name] }

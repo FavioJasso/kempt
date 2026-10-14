@@ -151,6 +151,7 @@ td.r-title { background: var(--title-bg); color: var(--title-ink); }
 td.r-header { background: var(--header-bg); color: var(--header-ink); font-weight: 600; }
 td.r-data { background: var(--data-bg); color: var(--data-ink); }
 td.r-total { background: var(--total-bg); color: var(--total-ink); text-decoration: line-through; }
+td.r-total_kept { background: var(--total-bg); color: var(--total-ink); }
 td.r-footer { background: var(--footer-bg); color: var(--footer-ink); font-style: italic; }
 td.r-null {
   background: repeating-linear-gradient(45deg, var(--null-a), var(--null-a) 4px, var(--null-b) 4px, var(--null-b) 8px);
@@ -160,7 +161,7 @@ td.hl { box-shadow: inset 0 0 0 2px var(--focus); background-color: var(--hl-bg)
 .swatch.r-title { background: var(--title-bg); }
 .swatch.r-header { background: var(--header-bg); }
 .swatch.r-data { background: var(--data-bg); }
-.swatch.r-total { background: var(--total-bg); border-color: var(--total-ink); }
+.swatch.r-total, .swatch.r-total_kept { background: var(--total-bg); border-color: var(--total-ink); }
 .swatch.r-footer { background: var(--footer-bg); }
 .swatch.r-null { background: repeating-linear-gradient(45deg, var(--null-a), var(--null-a) 3px, var(--null-b) 3px, var(--null-b) 6px); }
 .swatch.r-ignored { background: transparent; border-style: dashed; }
@@ -193,8 +194,7 @@ table.clean th .col-name { font-family: var(--mono); font-weight: 700; }
 table.clean th .col-type { display: block; color: var(--accent); font-family: var(--mono); font-size: 11px; font-weight: 500; }
 table.clean th .col-unit { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
 table.clean td { font-family: var(--mono); }
-table.clean table.sheet td[colspan] { max-width: none; }
-td.num { text-align: right; }
+table.clean td.num { text-align: right; }
 .nullv { color: var(--muted); opacity: .7; }
 
 .ddl-bar, .query-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }

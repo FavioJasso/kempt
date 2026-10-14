@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/FavioJasso/kempt/internal/grid"
+	"github.com/FavioJasso/kempt/internal/normalize"
 )
 
 var (
@@ -316,6 +317,7 @@ func (s *sheet) totals(rg *Region, body []int, c1, c2 int, keep bool) {
 		rg.Totals = append(rg.Totals, r)
 		rg.rowRole[r] = grid.RoleTotal
 		if keep {
+			rg.rowRole[r] = grid.RoleTotalKept
 			rg.Data = append(rg.Data, r)
 			rg.Decisions = append(rg.Decisions, grid.NewDecision(grid.KKeepTotalRow, s.g.Sheet,
 				grid.RowRange(r, c1, c2), conf, why+". Kept because of --keep-totals."))
@@ -494,10 +496,14 @@ func (s *sheet) applyFillDown(res *Result, opts Options) []string {
 			if rg.Skipped {
 				continue
 			}
-			for _, hc := range rg.Cols {
-				if !matchColumn(want, hc) {
-					continue
-				}
+			cols, ambiguous := matchColumns(want, rg.Cols)
+			if ambiguous {
+				warnings = append(warnings, fmt.Sprintf("--fill-down %q matches the headers of %d columns; use a column letter or name", want, len(cols)))
+				matched = true
+				continue
+			}
+			for _, j := range cols {
+				hc := rg.Cols[j]
 				matched = true
 				var src *[2]int
 				n, first, last := 0, -1, -1
@@ -538,17 +544,58 @@ func (s *sheet) applyFillDown(res *Result, opts Options) []string {
 	return warnings
 }
 
-// matchColumn matches a --fill-down argument against a column letter, its
-// header text, or its snake_case name.
-func matchColumn(want string, hc HeaderCol) bool {
-	if strings.EqualFold(want, grid.ColName(hc.Col)) {
-		return true
+// matchColumns finds the columns a --fill-down argument names, trying in
+// turn the column names kempt prints (name, name_2, sales_pct), column
+// letters, and header text. Header text matching several columns is
+// ambiguous.
+func matchColumns(want string, cols []HeaderCol) (idx []int, ambiguous bool) {
+	names := columnNames(cols)
+	for j, n := range names {
+		if want == n || want == n+"_pct" {
+			idx = append(idx, j)
+		}
 	}
-	text := strings.Join(hc.Parts, " ")
-	if strings.EqualFold(want, text) || (len(hc.Parts) > 0 && strings.EqualFold(want, hc.Parts[len(hc.Parts)-1])) {
-		return true
+	if len(idx) > 0 {
+		return idx, false
 	}
-	return snake(want) != "" && snake(want) == snake(text)
+	for j, hc := range cols {
+		if strings.EqualFold(want, grid.ColName(hc.Col)) {
+			return []int{j}, false
+		}
+	}
+	for j, hc := range cols {
+		text := strings.Join(hc.Parts, " ")
+		if strings.EqualFold(want, text) || (len(hc.Parts) > 0 && strings.EqualFold(want, hc.Parts[len(hc.Parts)-1])) ||
+			(snake(want) != "" && snake(want) == snake(text)) {
+			idx = append(idx, j)
+		}
+	}
+	return idx, len(idx) > 1
+}
+
+// columnNames predicts the names plan gives the columns: the header base
+// name, _pct for a percent unit, c_ for Postgres system names, and _2, _3
+// for repeats. (Plan may still add _pct when the values are percentages,
+// which matchColumns accepts too.)
+func columnNames(cols []HeaderCol) []string {
+	out := make([]string, len(cols))
+	seen := map[string]bool{}
+	for j, hc := range cols {
+		name, unit, _ := normalize.ColumnBase(hc.Parts, grid.ColName(hc.Col))
+		if unit == "%" && !strings.HasSuffix(name, "pct") {
+			name += "_pct"
+		}
+		if normalize.SystemColumn(name) {
+			name = "c_" + name
+		}
+		final := name
+		for i := 2; seen[final]; i++ {
+			final = fmt.Sprintf("%s_%d", name, i)
+		}
+		seen[final] = true
+		out[j] = final
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ const ROLES = [
   ["header", "Header"],
   ["data", "Data"],
   ["total", "Total (dropped)"],
+  ["total_kept", "Total (kept)"],
   ["footer", "Footer"],
   ["null", "NULL"],
   ["ignored", "Ignored"],
@@ -98,17 +99,28 @@ function banner(msg, kind = "error") {
   b.hidden = false;
 }
 
+const OPTIONS = ["#opt-keep-totals", "#opt-date-order", "#opt-lenient", "#opt-header-rows", "#opt-skip-rows", "#opt-fill-down"];
+
 function busy(on) {
   document.body.classList.toggle("busy", on);
   for (const b of $$(".chip, #load-btn, #run-sql")) b.disabled = on;
+  for (const sel of OPTIONS) $(sel).disabled = on;
 }
 
+// Only the latest inspect request may render: a slow earlier response must
+// not overwrite the result for options changed since.
+let inspectSeq = 0;
+
 async function inspect(source) {
-  state.source = source;
+  const seq = ++inspectSeq;
   banner(null);
   busy(true);
   try {
     const result = await api("/api/inspect", { method: "POST", body: formData(source) });
+    if (seq !== inspectSeq) return;
+    // The workspace, Load and option changes follow the file on screen, so
+    // a failed upload leaves the previous file in charge.
+    state.source = source;
     state.result = result;
     state.sheet = 0;
     state.table = 0;
@@ -117,14 +129,16 @@ async function inspect(source) {
     render();
     if (!result.sheets.length) banner("The file has no sheets kempt can read.", "info");
   } catch (err) {
+    if (seq !== inspectSeq) return;
     banner(err.message);
   } finally {
-    busy(false);
+    if (seq === inspectSeq) busy(false);
   }
 }
 
 async function load() {
   if (!state.source) return;
+  banner(null);
   busy(true);
   $("#load-btn").textContent = "Loading…";
   try {
@@ -209,7 +223,7 @@ function renderSheet() {
   renderGrid(sh);
   renderTablePicker(sh);
   renderRight();
-  if (sh.warnings && sh.warnings.length) banner(sh.warnings.join("; "), "info");
+  banner(sh.warnings && sh.warnings.length ? sh.warnings.join("; ") : null, "info");
 }
 
 function renderLegend(sh) {
@@ -217,7 +231,7 @@ function renderLegend(sh) {
   const ul = $("#legend");
   ul.replaceChildren();
   for (const [role, label] of ROLES) {
-    if (!present.has(role) && !["title", "header", "data", "total"].includes(role)) continue;
+    if (!present.has(role) && !["header", "data"].includes(role)) continue;
     ul.append(el("li", {}, el("span", { class: `swatch r-${role}` }), label));
   }
 }
@@ -400,9 +414,14 @@ function renderLoadState() {
 function resultTable(columns, rows) {
   const table = el("table", { class: "clean" });
   table.append(el("thead", {}, el("tr", {}, ...columns.map((c) => el("th", {}, el("span", { class: "col-name", text: c }))))));
+  // Results arrive as text; right-align columns whose values are all numbers.
+  const numeric = columns.map((_, j) => rows.some((r) => r[j] !== null) &&
+    rows.every((r) => r[j] === null || /^-?\d+(\.\d+)?$/.test(r[j])));
   const body = el("tbody");
   for (const row of rows) {
-    body.append(el("tr", {}, ...row.map((v) => v === null ? el("td", { class: "nullv", text: "NULL" }) : el("td", { text: v }))));
+    body.append(el("tr", {}, ...row.map((v, j) => v === null
+      ? el("td", { class: "nullv", text: "NULL" })
+      : el("td", { class: numeric[j] ? "num" : "", text: v }))));
   }
   table.append(body);
   return table;
@@ -446,7 +465,7 @@ function wire() {
   $("#sql").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runQuery(); }
   });
-  for (const sel of ["#opt-keep-totals", "#opt-date-order", "#opt-lenient", "#opt-header-rows", "#opt-skip-rows", "#opt-fill-down"]) {
+  for (const sel of OPTIONS) {
     $(sel).addEventListener("change", () => { if (state.source) inspect(state.source); });
   }
 }
@@ -458,6 +477,7 @@ async function init() {
     const mb = Math.round(state.config.maxUploadBytes / (1 << 20));
     const rows = state.config.maxRows ? `, ${state.config.maxRows.toLocaleString()} rows` : "";
     $("#drop-sub").textContent = `or click to choose a file (up to ${mb} MB${rows}). It is processed in memory and never stored.`;
+    if (!state.config.loadEnabled) $("#foot-retention").hidden = true;
   } catch { /* keep defaults */ }
   try {
     const { samples } = await api("/api/samples");

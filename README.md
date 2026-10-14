@@ -31,7 +31,7 @@ kempt ddl budget.xlsx --dialect postgres       # CREATE TABLE with column commen
 kempt load budget.xlsx --dsn postgres://...    # create the table and load the clean rows
 ```
 
-Here is `kempt inspect` on the bundled [`budget_report.xlsx`](testdata/fixtures/budget_report.xlsx). That sheet has a merged title, a two-row "FY2025 / FY2026" header over "Budget / Actual", `($000s)` units, accounting negatives, subtotals, a grand total and footnotes:
+Here is `kempt inspect` on the bundled [`budget_report.xlsx`](testdata/fixtures/budget_report.xlsx). That sheet has a merged title, a two-row "FY2025 / FY2026" header over "Budget / Actual", `($000s)` units, accounting negatives, subtotals, a grand total and footnotes. The decision list is abridged; `…` marks what was left out:
 
 ```text
 $ kempt inspect budget_report.xlsx --rows 4
@@ -58,24 +58,31 @@ Decisions (26):
                                       (row 4); skipped as a title.
   A2:H2    skip_title_row       0.90  Row 2 has a single value above the header (row 4); skipped as
                                       a title.
+  …  5 column_name decisions
   A4:H5    header_merge         0.90  Rows 4–5 form a two-row header: merged group labels in row 4
                                       ("FY2025 ($000s)" over C:D, "FY2026 ($000s)" over E:F) are
                                       combined with the labels below as group_sub.
+  …  5 strip_unit decisions
   A5:H5    header_row           0.95  Row 5 scored highest as the header (3.45: 100% filled, 100%
-                                      text, 75% unique, next rows 70% more numeric); the next best
-                                      row (row 6) scored 2.45.
+                                      labels, 75% unique, next rows 70% more numeric); the next best
+                                      row (row 6) scored 2.45; row 4 above holds its group labels.
   A8:H8    drop_total_row       0.97  Row 8 is labeled "Total Public Works"; C8 equals the sum of
                                       its group (3570). Dropped as a totals row (use --keep-totals
                                       to keep it).
   C11      accounting_negative  0.95  Read 1 value in column fy2025_budget as negative because it is
                                       written in accounting style (parentheses or a trailing minus):
                                       C11 ("(1,234)" → -1234).
+  …  3 accounting_negative decisions
   H11      null_token           0.95  Read 1 value in column notes as NULL because it is a
                                       missing-value placeholder: H11 ("—").
+  …  2 drop_total_row and 1 null_token decisions
+  A16:H16  drop_total_row       0.97  Row 16 is labeled "Grand Total"; C16 equals the sum of every
+                                      data row above (14396). Dropped as a totals row (use
+                                      --keep-totals to keep it).
   A18:H18  skip_footer          0.90  Row 18 follows the last data row and holds a single note
                                       ("Source: Riverton Finance Department, FY…"); dropped as a
                                       footer.
-  …
+  …  1 skip_footer decision
 
 Preview (first 4 of 7 rows; ∅ = NULL):
   ROW  department          program              fy2025_budget  fy2025_actual  fy2026_budget
@@ -173,11 +180,11 @@ When a heuristic gets a sheet wrong, these flags correct it. All of them work wi
 | `--skip-rows N` | skip the first N rows; the header starts right after |
 | `--header-rows N` | force the header height |
 | `--keep-totals` | keep totals and subtotals rows as data |
-| `--fill-down COL[,COL]` | fill blank cells from above (column letters, header text, or names) |
+| `--fill-down COL[,COL]` | fill blank cells from above; name columns as kempt prints them (`region`, `name_2`), by letter (`C`), or by header text |
 | `--lenient 0.98` | keep a column's type if at least this fraction of values parse; failures become NULL and are logged |
 | `--date-order dmy` | read ambiguous numeric dates as DD/MM (default MM/DD, logged with confidence 0.5) |
 | `--report report.json` | write the decision report |
-| `--table NAME` | table name (default: the slugified sheet name, or the file name for CSV) |
+| `--table NAME` | table name (default: the slugified sheet name, or the file name for CSV); with several tables in the workbook they become `NAME_1`, `NAME_2`, ... in order |
 
 ## Loading
 

@@ -15,11 +15,6 @@ import (
 // MaxIdent is the longest identifier kempt emits (Postgres truncates at 63 bytes).
 const MaxIdent = 63
 
-// pgSystemColumns are names Postgres reserves in every table.
-var pgSystemColumns = map[string]bool{
-	"tableoid": true, "xmin": true, "cmin": true, "xmax": true, "cmax": true, "ctid": true,
-}
-
 // Options control detection, inference, and naming.
 type Options struct {
 	Detect detect.Options
@@ -138,21 +133,7 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 	for j, hc := range rg.Cols {
 		letter := grid.ColName(hc.Col)
 		header := strings.Join(hc.Parts, " / ")
-		var names []string
-		var unit, unitPart string
-		for _, part := range hc.Parts {
-			rest, u := normalize.ExtractUnit(part)
-			if u != "" {
-				unit, unitPart = u, part
-			}
-			if sn := normalize.SnakeCase(rest); sn != "" {
-				names = append(names, sn)
-			}
-		}
-		name := strings.Join(names, "_")
-		if name == "" {
-			name = "col_" + strings.ToLower(letter)
-		}
+		name, unit, unitPart := normalize.ColumnBase(hc.Parts, letter)
 
 		in := infer.Input{Sheet: g.Sheet, Name: name, Header: header, Col: hc.Col,
 			Rows: rg.Data, Cells: make([]*grid.Cell, len(rg.Data))}
@@ -174,7 +155,7 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 		if (unit == "%" || res.Pct) && !strings.HasSuffix(name, "pct") {
 			name += "_pct"
 		}
-		system := pgSystemColumns[name]
+		system := normalize.SystemColumn(name)
 		if system {
 			name = "c_" + name
 		}
@@ -265,19 +246,45 @@ func truncate(s string, n int) string {
 }
 
 // UniqueTables renames tables whose names collide across sheets by appending
-// _2, _3, ... in sheet order.
+// _2, _3, ... in sheet order, skipping names another table already has.
 func UniqueTables(sheets []*Sheet) {
+	taken := map[string]bool{}
+	for _, sh := range sheets {
+		for _, t := range sh.Tables {
+			taken[t.Table] = true
+		}
+	}
 	seen := map[string]bool{}
 	for _, sh := range sheets {
 		for _, t := range sh.Tables {
 			name := t.Table
 			for i := 2; seen[name]; i++ {
 				suffix := fmt.Sprintf("_%d", i)
-				name = truncate(t.Table, MaxIdent-len(suffix)) + suffix
+				if cand := truncate(t.Table, MaxIdent-len(suffix)) + suffix; !taken[cand] {
+					name = cand
+				}
 			}
 			t.Table = name
 			seen[name] = true
 		}
+	}
+}
+
+// NumberTables names every table in the workbook base_1, base_2, ... in
+// sheet order, or just base when there is one table. It is how a table name
+// given by the user (--table) applies to a workbook with several tables.
+func NumberTables(sheets []*Sheet, base string) {
+	var all []*Plan
+	for _, sh := range sheets {
+		all = append(all, sh.Tables...)
+	}
+	for i, t := range all {
+		if len(all) == 1 {
+			t.Table = truncate(base, MaxIdent)
+			break
+		}
+		suffix := fmt.Sprintf("_%d", i+1)
+		t.Table = truncate(base, MaxIdent-len(suffix)) + suffix
 	}
 }
 

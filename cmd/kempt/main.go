@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,8 +24,18 @@ import (
 	"github.com/FavioJasso/kempt/internal/report"
 )
 
-// version is set by goreleaser via -ldflags.
+// version is set by goreleaser via -ldflags; go install builds report the
+// module version instead.
 var version = "dev"
+
+func init() {
+	if version != "dev" {
+		return
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -98,6 +109,9 @@ func (f *flags) analyze(path string, stderr io.Writer) ([]*plan.Sheet, error) {
 		}
 		sheets = append(sheets, sh)
 	}
+	if f.table != "" {
+		plan.NumberTables(sheets, f.table)
+	}
 	plan.UniqueTables(sheets)
 	if f.reportPath != "" {
 		if err := writeFile(f.reportPath, func(w io.Writer) error {
@@ -144,19 +158,26 @@ func newRoot() *cobra.Command {
 			}
 		},
 	}
-	pf := root.PersistentFlags()
+	for _, cmd := range []*cobra.Command{inspectCmd(f), ddlCmd(f), loadCmd(f)} {
+		f.register(cmd)
+		root.AddCommand(cmd)
+	}
+	root.AddCommand(serveCmd())
+	return root
+}
+
+// register adds the analysis flags to a command that reads a file.
+func (f *flags) register(cmd *cobra.Command) {
+	pf := cmd.Flags()
 	pf.StringVar(&f.sheet, "sheet", "", "only process this sheet (default: every visible sheet)")
 	pf.IntVar(&f.headerRows, "header-rows", 0, "force the header height in rows (0 = detect)")
 	pf.IntVar(&f.skipRows, "skip-rows", 0, "force the number of leading rows to skip; the header starts right after (--skip-rows 0 puts it on row 1)")
 	pf.BoolVar(&f.keepTotals, "keep-totals", false, "keep totals and subtotals rows as data")
-	pf.StringSliceVar(&f.fillDown, "fill-down", nil, "fill blank cells from above in these columns (letters, header text, or names)")
+	pf.StringSliceVar(&f.fillDown, "fill-down", nil, "fill blank cells from above in these columns (letters, header text, or column names)")
 	pf.Float64Var(&f.lenient, "lenient", 0, "keep a column's type if at least this fraction of values parse (failures become NULL)")
 	pf.StringVar(&f.dateOrder, "date-order", "", "order for ambiguous numeric dates: mdy or dmy (default: mdy, logged)")
 	pf.StringVar(&f.reportPath, "report", "", "write the decision report as JSON to this file")
-	pf.StringVar(&f.table, "table", "", "table name (default: the slugified sheet name, or the file name for CSV; several tables get _1, _2)")
-
-	root.AddCommand(inspectCmd(f), ddlCmd(f), loadCmd(f), serveCmd())
-	return root
+	pf.StringVar(&f.table, "table", "", "table name (default: the slugified sheet name, or the file name for CSV); several tables become <name>_1, <name>_2, ... across the workbook")
 }
 
 func inspectCmd(f *flags) *cobra.Command {
@@ -228,7 +249,7 @@ func ddlCmd(f *flags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&dialect, "dialect", "postgres", "SQL dialect: postgres, mysql, or sqlite")
-	cmd.Flags().StringVar(&schema, "schema", "", "schema/database to qualify the table with")
+	cmd.Flags().StringVar(&schema, "schema", "", "schema (Postgres), database (MySQL), or attached database (SQLite) to qualify the table with")
 	return cmd
 }
 
@@ -258,6 +279,7 @@ func loadCmd(f *flags) *cobra.Command {
 			}
 			d := target.Dialect
 			if dialect != "" {
+				dialect = strings.ToLower(dialect)
 				if d != "" && dialect != d {
 					return fmt.Errorf("--dialect %s does not match the %s DSN", dialect, d)
 				}
@@ -268,6 +290,9 @@ func loadCmd(f *flags) *cobra.Command {
 			}
 			if _, err := checkDialect(d); err != nil {
 				return err
+			}
+			if d == infer.SQLite && schema != "" && schema != "main" {
+				return errors.New("--schema is not supported for SQLite: kempt loads into the file's main database")
 			}
 			sheets, err := f.analyze(args[0], stderr)
 			if err != nil {

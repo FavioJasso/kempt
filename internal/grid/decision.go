@@ -100,12 +100,13 @@ func CompareDecisions(a, b Decision) int {
 // Cell roles drive the UI coloring. Every non-empty cell in a sheet gets
 // exactly one role; empty cells inside a table get RoleBlank.
 const (
-	RoleTitle   = "title"
-	RoleHeader  = "header"
-	RoleData    = "data"
-	RoleTotal   = "total"
-	RoleFooter  = "footer"
-	RoleNull    = "null"
-	RoleBlank   = "blank"
-	RoleIgnored = "ignored" // content outside any detected table (e.g. a region too small to load)
+	RoleTitle     = "title"
+	RoleHeader    = "header"
+	RoleData      = "data"
+	RoleTotal     = "total"      // a totals row that is dropped
+	RoleTotalKept = "total_kept" // a totals row kept by --keep-totals
+	RoleFooter    = "footer"
+	RoleNull      = "null"
+	RoleBlank     = "blank"
+	RoleIgnored   = "ignored" // content outside any detected table (e.g. a region too small to load)
 )

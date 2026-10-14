@@ -123,6 +123,9 @@ func Load(ctx context.Context, dialect, connString string, plans []*plan.Plan, o
 			return nil, err
 		}
 		defer db.Close()
+		if err := db.PingContext(ctx); err != nil {
+			return nil, fmt.Errorf("emit: connect to mysql: %w", err)
+		}
 		if mode == IfExistsFail {
 			// Check every table first, so a conflict changes nothing.
 			for _, p := range plans {
@@ -576,7 +579,7 @@ func ifExistsMode(s string) (string, error) {
 }
 
 func existsError(schema, table string) error {
-	return fmt.Errorf("emit: %w: %s (use if-exists replace or append)", ErrTableExists, resultName(schema, table))
+	return fmt.Errorf("%w: %s (use --if-exists replace or --if-exists append)", ErrTableExists, resultName(schema, table))
 }
 
 // checkPlans validates every plan and rejects two plans for the same table,

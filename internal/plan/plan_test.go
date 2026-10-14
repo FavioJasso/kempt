@@ -213,8 +213,25 @@ func TestUniqueTables(t *testing.T) {
 	b := &Sheet{Tables: []*Plan{{Table: "data"}, {Table: "data_2"}}}
 	UniqueTables([]*Sheet{a, b})
 	got := []string{a.Tables[0].Table, b.Tables[0].Table, b.Tables[1].Table}
-	if got[0] == got[1] || got[1] == got[2] || got[0] == got[2] {
-		t.Fatalf("names still collide: %v", got)
+	// The second "data" skips data_2, which another table already has.
+	if !slices.Equal(got, []string{"data", "data_3", "data_2"}) {
+		t.Fatalf("names = %v", got)
+	}
+}
+
+func TestNumberTables(t *testing.T) {
+	a := &Sheet{Tables: []*Plan{{Table: "sales_q1"}}}
+	b := &Sheet{Tables: []*Plan{{Table: "staff"}}}
+	c := &Sheet{Tables: []*Plan{{Table: "two_1"}, {Table: "two_2"}}}
+	NumberTables([]*Sheet{a, b, c}, "foo")
+	got := []string{a.Tables[0].Table, b.Tables[0].Table, c.Tables[0].Table, c.Tables[1].Table}
+	if !slices.Equal(got, []string{"foo_1", "foo_2", "foo_3", "foo_4"}) {
+		t.Fatalf("names = %v", got)
+	}
+	one := &Sheet{Tables: []*Plan{{Table: "x"}}}
+	NumberTables([]*Sheet{one, {}}, "foo")
+	if one.Tables[0].Table != "foo" {
+		t.Fatalf("single table = %q", one.Tables[0].Table)
 	}
 }
 
