@@ -33,10 +33,14 @@ const (
 	defaultMaxCells  = 20_000_000
 	defaultAnalyses  = 4
 
-	// In demo mode, formulas without a cached value are evaluated only on
-	// sheets with at most this many values: evaluating loads the whole sheet
-	// into memory. Larger sheets read them as #CALC!.
-	demoCalcLimit = 200_000
+	// In demo mode, formulas without a cached value are evaluated only in
+	// workbooks with at most this much worksheet XML (about 150,000 values):
+	// evaluating loads whole sheets into memory. Larger workbooks read them
+	// as #CALC!.
+	demoCalcBytes = 8 << 20
+	// demoMaxUnzip caps a demo workbook's uncompressed size, which excelize
+	// holds in memory; 1M cells take well under this.
+	demoMaxUnzip = 100 << 20
 	// Queries in flight at once (each opens its own connection).
 	maxQueries = 4
 	// How long a request waits for an analysis or query slot.
@@ -74,7 +78,8 @@ type Server struct {
 	maxUpload int64
 	maxRows   int
 	maxCells  int64
-	calcLimit int
+	calcBytes int64
+	maxUnzip  int64         // uncompressed workbook bytes; 0 = maxUpload x maxUnzipRatio
 	analyses  chan struct{} // analysis slots
 	queries   chan struct{} // query slots
 	handler   http.Handler
@@ -95,7 +100,7 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	if cfg.Demo {
-		s.maxUpload, s.maxRows, s.maxCells, s.calcLimit = demoMaxUpload, demoMaxRows, demoMaxCells, demoCalcLimit
+		s.maxUpload, s.maxRows, s.maxCells, s.calcBytes, s.maxUnzip = demoMaxUpload, demoMaxRows, demoMaxCells, demoCalcBytes, demoMaxUnzip
 		s.analyses = make(chan struct{}, demoAnalyses)
 		s.limiter = newLimiter(demoRate, time.Minute)
 	}

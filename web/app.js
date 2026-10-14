@@ -101,14 +101,21 @@ function banner(msg, kind = "error") {
 
 const OPTIONS = ["#opt-keep-totals", "#opt-date-order", "#opt-lenient", "#opt-header-rows", "#opt-skip-rows", "#opt-fill-down"];
 
+// busy counts requests in flight, so one finishing does not re-enable the
+// buttons while another (a load during an inspect) still runs. Options stay
+// enabled, keeping keyboard focus: only the latest inspect renders anyway.
+let busyCount = 0;
+
 function busy(on) {
-  document.body.classList.toggle("busy", on);
-  for (const b of $$(".chip, #load-btn, #run-sql")) b.disabled = on;
-  for (const sel of OPTIONS) $(sel).disabled = on;
+  busyCount = Math.max(0, busyCount + (on ? 1 : -1));
+  const b = busyCount > 0;
+  document.body.classList.toggle("busy", b);
+  for (const el of $$(".chip, #load-btn, #run-sql")) el.disabled = b;
 }
 
 // Only the latest inspect request may render: a slow earlier response must
-// not overwrite the result for options changed since.
+// not overwrite the result for options changed since. A load started before
+// a newer inspect is dropped the same way.
 let inspectSeq = 0;
 
 async function inspect(source) {
@@ -132,26 +139,38 @@ async function inspect(source) {
     if (seq !== inspectSeq) return;
     banner(err.message);
   } finally {
-    if (seq === inspectSeq) busy(false);
+    busy(false);
   }
 }
 
+function showWarnings() {
+  const sh = currentSheet();
+  banner(sh && sh.warnings && sh.warnings.length ? sh.warnings.join("; ") : null, "info");
+}
+
+let loading = false;
+
 async function load() {
   if (!state.source) return;
-  banner(null);
+  const seq = inspectSeq;
+  loading = true;
   busy(true);
-  $("#load-btn").textContent = "Loading…";
+  renderLoadState();
   try {
-    state.load = await api("/api/load", { method: "POST", body: formData(state.source) });
+    const loaded = await api("/api/load", { method: "POST", body: formData(state.source) });
+    if (seq !== inspectSeq) return; // another file or options are on screen now
+    state.load = loaded;
     const t = currentTable();
     $("#sql").value = `SELECT *\nFROM ${quoteIdent(t ? t.table : state.load.table)}\nLIMIT 20;`;
+    showWarnings();
     renderLoadState();
     selectTab("query");
   } catch (err) {
-    banner(err.message);
+    if (seq === inspectSeq) banner(err.message);
   } finally {
+    loading = false;
     busy(false);
-    $("#load-btn").textContent = state.load ? "Reload into Postgres" : "Load into Postgres";
+    renderLoadState();
   }
 }
 
@@ -223,7 +242,7 @@ function renderSheet() {
   renderGrid(sh);
   renderTablePicker(sh);
   renderRight();
-  banner(sh.warnings && sh.warnings.length ? sh.warnings.join("; ") : null, "info");
+  showWarnings();
 }
 
 function renderLegend(sh) {
@@ -397,6 +416,7 @@ function highlight(range) {
 function renderLoadState() {
   const enabled = state.config.loadEnabled && currentSheet() && currentSheet().tables.length > 0;
   $("#load-btn").hidden = !enabled;
+  $("#load-btn").textContent = loading ? "Loading…" : state.load ? "Reload into Postgres" : "Load into Postgres";
   const loaded = !!state.load;
   $("#query-tab").hidden = !loaded;
   if (!loaded && state.tab === "query") state.tab = "clean";

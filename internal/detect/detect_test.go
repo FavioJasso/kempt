@@ -525,6 +525,20 @@ func TestMatchColumns(t *testing.T) {
 		{"Budget", []int{4}, false},
 		{"nothing", nil, false},
 	}
+	// An exact name wins over the _pct fallback: margin_pct is column C,
+	// not also column B (margin).
+	pct := []HeaderCol{{Col: 0, Parts: []string{"Store"}}, {Col: 1, Parts: []string{"Margin"}}, {Col: 2, Parts: []string{"Margin %"}}}
+	if idx, amb := matchColumns("margin_pct", pct); !slices.Equal(idx, []int{2}) || amb {
+		t.Errorf("margin_pct = %v, %v", idx, amb)
+	}
+	if idx, _ := matchColumns("store_pct", pct); !slices.Equal(idx, []int{0}) {
+		t.Errorf("store_pct (percent values) = %v", idx)
+	}
+	// Names are cut to 63 bytes, as plan prints them.
+	long := []HeaderCol{{Col: 0, Parts: []string{"Department responsible for the quarterly operating expenditure report"}}}
+	if idx, _ := matchColumns("department_responsible_for_the_quarterly_operating_expenditure", long); !slices.Equal(idx, []int{0}) {
+		t.Errorf("truncated name = %v", idx)
+	}
 	for _, tt := range tests {
 		idx, amb := matchColumns(tt.want, cols)
 		if !slices.Equal(idx, tt.idx) || amb != tt.ambiguous {

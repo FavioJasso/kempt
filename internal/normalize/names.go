@@ -1,8 +1,10 @@
 package normalize
 
 import (
+	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -120,3 +122,32 @@ var pgSystemColumns = map[string]bool{
 // SystemColumn reports whether name is a Postgres system column name, which
 // a table cannot use for its own column.
 func SystemColumn(name string) bool { return pgSystemColumns[name] }
+
+// MaxIdent is the longest identifier kempt emits: Postgres truncates
+// identifiers at 63 bytes.
+const MaxIdent = 63
+
+// Truncate cuts s to at most n bytes without splitting a UTF-8 sequence,
+// then drops trailing underscores.
+func Truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return strings.TrimRight(s[:n], "_")
+}
+
+// Unique truncates name to max bytes and appends _2, _3, ... until it is
+// not in seen, then records it.
+func Unique(name string, seen map[string]bool, max int) string {
+	name = Truncate(name, max)
+	out := name
+	for i := 2; seen[out]; i++ {
+		suffix := "_" + strconv.Itoa(i)
+		out = Truncate(name, max-len(suffix)) + suffix
+	}
+	seen[out] = true
+	return out
+}

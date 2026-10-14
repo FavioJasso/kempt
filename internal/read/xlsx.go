@@ -1,6 +1,7 @@
 package read
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -42,7 +43,7 @@ func XLSX(r io.Reader, opts Options) ([]*grid.Grid, error) {
 	if err != nil {
 		return nil, err
 	}
-	x := &xlsxReader{f: f, parts: parts, maxRows: opts.MaxRows, maxCells: opts.MaxCells, calcLimit: opts.CalcLimit, styles: map[int]cellStyle{}}
+	x := &xlsxReader{f: f, parts: parts, maxRows: opts.MaxRows, maxCells: opts.MaxCells, calcBytes: opts.CalcBytes, styles: map[int]cellStyle{}}
 	grids := make([]*grid.Grid, 0, len(names))
 	for _, name := range names {
 		g, err := x.sheet(name)
@@ -107,8 +108,51 @@ type xlsxReader struct {
 	sstLoaded bool
 	maxRows   int
 	maxCells  int64
-	calcLimit int
+	calcBytes int64
+	calc      calcState
 	styles    map[int]cellStyle // style id → classified number format
+}
+
+// calcState tracks whether formulas without a cached value can be evaluated.
+type calcState uint8
+
+const (
+	calcUnknown calcState = iota
+	calcReady
+	calcOff
+)
+
+// canCalc prepares excelize to evaluate formulas, once per workbook. Merges
+// must go first: excelize reads a cell under a merge as the merge's anchor,
+// so =SUM(B3:C3) over a merged B3:C3 would count B3 twice, where Excel sees
+// an empty C3.
+func (x *xlsxReader) canCalc() bool {
+	if x.calc != calcUnknown {
+		return x.calc == calcReady
+	}
+	x.calc = calcOff
+	var total int64
+	var merged []string
+	for name, part := range x.parts.sheets {
+		if !isWorksheet(part.kind) {
+			continue
+		}
+		data, _ := pkgPart(x.f, part.path)
+		total += int64(len(data))
+		if bytes.Contains(data, []byte("mergeCell")) {
+			merged = append(merged, name)
+		}
+	}
+	if x.calcBytes > 0 && total > x.calcBytes {
+		return false
+	}
+	for _, name := range merged {
+		if err := x.f.UnmergeCell(name, "A1", "XFD1048576"); err != nil {
+			return false
+		}
+	}
+	x.calc = calcReady
+	return true
 }
 
 // sharedStrings loads the shared string table once per workbook.
@@ -121,7 +165,7 @@ func (x *xlsxReader) sharedStrings() error {
 	if !ok {
 		return nil // a workbook without text has no table
 	}
-	sst, err := readSST(data)
+	sst, err := readSST(newDecoder(x.f, data))
 	x.sst = sst
 	return err
 }
@@ -131,7 +175,7 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	if !ok {
 		return nil, fmt.Errorf("read: sheet %q: its part is missing from the workbook", name)
 	}
-	if !strings.HasSuffix(part.kind, "/worksheet") {
+	if !isWorksheet(part.kind) {
 		return nil, fmt.Errorf("%w: sheet %q is a chart or dialog sheet", errNotWorksheet, name)
 	}
 	data, ok := pkgPart(x.f, part.path)
@@ -158,7 +202,7 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	if err := checkCells(name, maxR+1, maxC+1, x.maxCells); err != nil {
 		return nil, err
 	}
-	calc := x.uncached(name, rows, merges, stored)
+	calc := x.uncached(name, rows, merges)
 	for k := range calc {
 		maxR, maxC = max(maxR, k[0]), max(maxC, k[1])
 		stored++
@@ -308,13 +352,12 @@ type calcResult struct {
 // uncached evaluates formulas that the file stores without a cached result
 // (workbooks written by scripts are often never recalculated). Without this
 // their cells would read as empty and whole rows could vanish. Evaluating
-// makes excelize load the whole sheet, so sheets with more than calcLimit
-// values are not evaluated and their uncached formulas read as #CALC!.
-func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range, stored int) map[[2]int]calcResult {
+// makes excelize load whole sheets, so workbooks over calcBytes are not
+// evaluated and their uncached formulas read as #CALC!.
+func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range) map[[2]int]calcResult {
 	out := map[[2]int]calcResult{}
 	var active []grid.Range
 	next, n := 0, 0
-	evaluate := x.calcLimit <= 0 || stored <= x.calcLimit
 	for r, row := range rows {
 		active = activeMerges(active, merges, &next, r)
 		for _, rv := range row.vals {
@@ -322,7 +365,7 @@ func (x *xlsxReader) uncached(sheet string, rows []rawRow, merges []grid.Range, 
 				continue
 			}
 			res := calcResult{formula: rv.formula, failed: true}
-			if evaluate && n < maxCalc {
+			if n < maxCalc && x.canCalc() {
 				v, err := x.f.CalcCellValue(sheet, grid.CellRef(r, rv.c), excelize.Options{RawCellValue: true})
 				if err == nil && strings.TrimSpace(v) == "" {
 					n++

@@ -110,7 +110,11 @@ func (s *Server) parseUpload(w http.ResponseWriter, r *http.Request) (*upload, e
 	if err := up.applyFields(fields); err != nil {
 		return nil, err
 	}
-	if err := checkZip(up.data, s.maxUpload); err != nil {
+	maxUnzip := s.maxUnzip
+	if maxUnzip == 0 {
+		maxUnzip = s.maxUpload * maxUnzipRatio
+	}
+	if err := checkZip(up.data, maxUnzip); err != nil {
 		return nil, err
 	}
 	return up, nil
@@ -167,9 +171,10 @@ func (up *upload) applyFields(f map[string]string) error {
 	return nil
 }
 
-// checkZip rejects XLSX uploads whose uncompressed size is unreasonable.
-// Only real zip archives count: a CSV may start with "PK" ("PKG_ID,...").
-func checkZip(data []byte, maxUpload int64) error {
+// checkZip rejects XLSX uploads that expand to more than maxUnzip bytes,
+// which protects the server from zip bombs. Only real zip archives count: a
+// CSV may start with "PK" ("PKG_ID,...").
+func checkZip(data []byte, maxUnzip int64) error {
 	if !bytes.HasPrefix(data, []byte("PK\x03\x04")) {
 		return nil
 	}
@@ -181,7 +186,7 @@ func checkZip(data []byte, maxUpload int64) error {
 	for _, f := range zr.File {
 		total += f.UncompressedSize64
 	}
-	if total > uint64(maxUpload)*maxUnzipRatio {
+	if total > uint64(maxUnzip) {
 		return &httpError{http.StatusRequestEntityTooLarge, "the workbook expands to more data than this server accepts"}
 	}
 	return nil
@@ -195,7 +200,7 @@ func (s *Server) analyze(ctx context.Context, up *upload) ([]*plan.Sheet, error)
 		return nil, err
 	}
 	defer release()
-	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows, MaxCells: s.maxCells, CalcLimit: s.calcLimit})
+	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows, MaxCells: s.maxCells, CalcBytes: s.calcBytes})
 	if err != nil {
 		switch {
 		case errors.Is(err, read.ErrTooManyRows):

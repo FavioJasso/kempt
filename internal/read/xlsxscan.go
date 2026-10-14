@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"sort"
@@ -57,43 +58,81 @@ func pkgPart(f *excelize.File, name string) ([]byte, bool) {
 	return out, found
 }
 
-func readRels(f *excelize.File, name string) []xmlRel {
+// newDecoder reads an XML part in whatever encoding it declares (some
+// writers use ISO-8859-1, windows-1252 or GB2312), as excelize does.
+func newDecoder(f *excelize.File, data []byte) *xml.Decoder {
+	d := xml.NewDecoder(bytes.NewReader(data))
+	d.CharsetReader = f.CharsetReader
+	return d
+}
+
+// readRels reads a relationships part; a missing part has none.
+func readRels(f *excelize.File, name string) ([]xmlRel, error) {
 	data, ok := pkgPart(f, name)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	var rels struct {
 		Rels []xmlRel `xml:"Relationship"`
 	}
-	if xml.Unmarshal(data, &rels) != nil {
-		return nil
+	if err := newDecoder(f, data).Decode(&rels); err != nil {
+		return nil, fmt.Errorf("read: %s: %w", name, err)
 	}
-	return rels.Rels
+	return rels.Rels, nil
 }
 
 // resolvePart resolves a relationship target against the part that owns it.
+// Some writers use Windows path separators or percent-encoding in targets.
 func resolvePart(owner, target string) string {
+	target = strings.ReplaceAll(target, `\`, "/")
+	if u, err := url.PathUnescape(target); err == nil {
+		target = u
+	}
 	if strings.HasPrefix(target, "/") {
 		return strings.TrimPrefix(path.Clean(target), "/")
 	}
 	return strings.TrimPrefix(path.Clean(path.Join(path.Dir(owner), target)), "/")
 }
 
+// relType is the last segment of a relationship type, lowercased:
+// ".../relationships/worksheet" → "worksheet".
+func relType(t string) string {
+	return strings.ToLower(t[strings.LastIndex(t, "/")+1:])
+}
+
+// isWorksheet reports whether a sheet's relationship type is a worksheet.
+// Writers that leave the type out (or misspell its case) are read as
+// worksheets; chart and dialog sheets are not.
+func isWorksheet(kind string) bool {
+	switch relType(kind) {
+	case "chartsheet", "dialogsheet":
+		return false
+	}
+	return true
+}
+
 // packageParts maps sheet names to their parts through the package and
 // workbook relationships, as excelize does.
 func packageParts(f *excelize.File) (pkgParts, error) {
 	wb := "xl/workbook.xml"
-	for _, r := range readRels(f, "_rels/.rels") {
-		if strings.HasSuffix(r.Type, "/officeDocument") {
+	rels, err := readRels(f, "_rels/.rels")
+	if err != nil {
+		return pkgParts{}, err
+	}
+	for _, r := range rels {
+		if relType(r.Type) == "officedocument" {
 			wb = resolvePart("", r.Target)
 		}
 	}
 	p := pkgParts{sheets: map[string]sheetPart{}, sst: path.Join(path.Dir(wb), "sharedStrings.xml")}
 	byID := map[string]sheetPart{}
-	for _, r := range readRels(f, path.Join(path.Dir(wb), "_rels", path.Base(wb)+".rels")) {
+	if rels, err = readRels(f, path.Join(path.Dir(wb), "_rels", path.Base(wb)+".rels")); err != nil {
+		return p, err
+	}
+	for _, r := range rels {
 		target := resolvePart(wb, r.Target)
 		byID[r.ID] = sheetPart{target, r.Type}
-		if strings.HasSuffix(r.Type, "/sharedStrings") {
+		if relType(r.Type) == "sharedstrings" {
 			p.sst = target
 		}
 	}
@@ -107,7 +146,7 @@ func packageParts(f *excelize.File) (pkgParts, error) {
 			ID   string `xml:"id,attr"` // r:id
 		} `xml:"sheets>sheet"`
 	}
-	if err := xml.Unmarshal(data, &w); err != nil {
+	if err := newDecoder(f, data).Decode(&w); err != nil {
 		return p, fmt.Errorf("read: workbook: %w", err)
 	}
 	for _, s := range w.Sheets {
@@ -121,8 +160,7 @@ func packageParts(f *excelize.File) (pkgParts, error) {
 // readSST reads the shared string table: each item is its text plus the text
 // of its rich-text runs, without phonetic (rPh) runs, with _xHHHH_ escapes
 // decoded.
-func readSST(data []byte) ([]string, error) {
-	d := xml.NewDecoder(bytes.NewReader(data))
+func readSST(d *xml.Decoder) ([]string, error) {
 	var out []string
 	var b strings.Builder
 	inSI, inT, rph := false, false, 0
@@ -209,10 +247,20 @@ const (
 )
 
 // scan streams one worksheet part. It stops with ErrTooManyRows once a value
-// lies below x.maxRows.
+// lies below x.maxRows, and with ErrTooManyCells as soon as the values seen
+// span more than x.maxCells, so a small file of many cells cannot fill
+// memory before the limits are checked.
 func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 	var sd scanData
-	d := xml.NewDecoder(bytes.NewReader(data))
+	d := newDecoder(x.f, data)
+	var (
+		stored int64            // cells kept so far
+		lastR  int              // last row (1-based) holding a value
+		lastC  = -1             // last column holding a value
+		resort = map[int]bool{} // rows that need sorting: a row number repeated
+		// shared formula children seen before their master
+		pending []pendingFormula
+	)
 	var (
 		row, col   = 0, -1 // current row (1-based) and last column (0-based)
 		cur        []rawVal
@@ -241,15 +289,29 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 				}
 			}
 		}
-		sort.SliceStable(cur, func(i, j int) bool { return cur[i].c < cur[j].c })
+		for _, v := range cur {
+			if strings.TrimSpace(v.v) != "" {
+				lastR, lastC = max(lastR, row), max(lastC, v.c)
+			}
+		}
+		stored += int64(len(cur))
+		if x.maxCells > 0 && stored > x.maxCells {
+			return fmt.Errorf("%w: sheet %q stores more than %d cells", ErrTooManyCells, sheet, x.maxCells)
+		}
+		if err := checkCells(sheet, lastR, lastC+1, x.maxCells); err != nil {
+			return err
+		}
+		if !sort.SliceIsSorted(cur, func(i, j int) bool { return cur[i].c < cur[j].c }) {
+			sort.SliceStable(cur, func(i, j int) bool { return cur[i].c < cur[j].c })
+		}
 		for len(sd.rows) < row {
 			sd.rows = append(sd.rows, rawRow{})
 		}
 		r := &sd.rows[row-1]
-		r.vals = append(r.vals, cur...)
-		if len(r.vals) > len(cur) { // a repeated row number: keep column order
-			sort.SliceStable(r.vals, func(i, j int) bool { return r.vals[i].c < r.vals[j].c })
+		if len(r.vals) > 0 {
+			resort[row-1] = true // a repeated row number: sorted once at the end
 		}
+		r.vals = append(r.vals, cur...)
 		cur = nil
 		return nil
 	}
@@ -268,13 +330,12 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 				if err := flush(); err != nil {
 					return sd, err
 				}
-				next := row + 1
-				if v := attr(t, "r"); v != "" {
-					n, err := strconv.Atoi(v)
-					if err != nil || n < 1 || n > excelRows {
-						return sd, fmt.Errorf("read: sheet %q: invalid row number %q", sheet, v)
-					}
+				next := row + 1 // a missing or unreadable number means the next row
+				if n, err := strconv.Atoi(strings.TrimSpace(attr(t, "r"))); err == nil && n >= 1 {
 					next = n
+				}
+				if next > excelRows {
+					return sd, fmt.Errorf("read: sheet %q: row %d is beyond Excel's last row", sheet, next)
 				}
 				row, col = next, -1
 			case "c":
@@ -283,7 +344,7 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 				}
 				inCell, hasIS, hasFormula, fShared, fSI = true, false, false, false, ""
 				cell = rawVal{c: col + 1, t: attr(t, "t")}
-				if ref := attr(t, "r"); ref != "" {
+				if ref := strings.ReplaceAll(attr(t, "r"), "$", ""); ref != "" {
 					_, c, err := grid.ParseRef(ref)
 					if err != nil {
 						return sd, fmt.Errorf("read: sheet %q: invalid cell reference %q", sheet, ref)
@@ -344,9 +405,13 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 					if strings.TrimSpace(v) != "" {
 						i, err := strconv.Atoi(strings.TrimSpace(v))
 						if err != nil || i < 0 || i >= len(x.sst) {
-							return sd, fmt.Errorf("read: sheet %q: cell %s: invalid shared string index %q", sheet, grid.CellRef(row-1, cell.c), v)
+							// A broken file: the text is lost, so the cell reads as
+							// an error value (NULL, logged) rather than failing
+							// the whole sheet or passing as empty.
+							cell.t, v = "e", "#REF!"
+						} else {
+							v = x.sst[i]
 						}
-						v = x.sst[i]
 					}
 				case "inlineStr":
 					if hasIS {
@@ -362,6 +427,9 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 					case f == "" && fShared:
 						if m, ok := shared[fSI]; ok {
 							f = shiftFormula(m.text, row-1-m.r, cell.c-m.c)
+						} else { // the master comes later in the file
+							pending = append(pending, pendingFormula{row - 1, cell.c, fSI})
+							f = pendingMark
 						}
 					}
 					cell.formula = strings.TrimPrefix(f, "=")
@@ -369,7 +437,7 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 				if cell.v != "" || cell.formula != "" {
 					cur = append(cur, cell)
 				}
-			case "scanData":
+			case "sheetData":
 				if err := flush(); err != nil {
 					return sd, err
 				}
@@ -388,6 +456,21 @@ func (x *xlsxReader) scan(sheet string, data []byte) (scanData, error) {
 	}
 	if err := flush(); err != nil {
 		return sd, err
+	}
+	for r := range resort {
+		vals := sd.rows[r].vals
+		sort.SliceStable(vals, func(i, j int) bool { return vals[i].c < vals[j].c })
+	}
+	for _, p := range pending {
+		f := ""
+		if m, ok := shared[p.si]; ok {
+			f = strings.TrimPrefix(shiftFormula(m.text, p.r-m.r, p.c-m.c), "=")
+		}
+		for i := range sd.rows[p.r].vals {
+			if v := &sd.rows[p.r].vals[i]; v.c == p.c && v.formula == pendingMark {
+				v.formula = f
+			}
+		}
 	}
 	sort.Slice(sd.merges, func(i, j int) bool {
 		a, b := sd.merges[i], sd.merges[j]
@@ -415,24 +498,44 @@ func attr(t xml.StartElement, name string) string {
 	return ""
 }
 
+// pendingFormula is a shared formula child whose master comes later.
+type pendingFormula struct {
+	r, c int
+	si   string
+}
+
+// pendingMark stands in for a shared formula child's text until its master
+// is read. No formula Excel writes starts with a NUL.
+const pendingMark = "\x00pending"
+
 // sharedFormula is the master cell of a shared formula.
 type sharedFormula struct {
 	text string
 	r, c int
 }
 
-var refRe = regexp.MustCompile(`^(\$?)([A-Z]{1,3})(\$?)([0-9]{1,7})`)
+var (
+	refRe      = regexp.MustCompile(`^(\$?)([A-Z]{1,3})(\$?)([0-9]{1,7})`)
+	colRangeRe = regexp.MustCompile(`^(\$?)([A-Z]{1,3}):(\$?)([A-Z]{1,3})`)
+	rowRangeRe = regexp.MustCompile(`^(\$?)([0-9]{1,7}):(\$?)([0-9]{1,7})`)
+)
 
-// shiftFormula moves the relative A1 references in a shared formula's text
-// by (dr, dc), as Excel does when it fills the formula from its master cell.
-// Text in double quotes and quoted sheet names is left alone; a reference
-// shifted off the sheet becomes #REF!.
+// shiftFormula moves the relative references in a shared formula's text by
+// (dr, dc), as Excel does when it fills the formula from its master cell:
+// cells (B2), whole columns (B:C) and whole rows (2:3), unless anchored
+// with $. Text in double quotes, quoted sheet names and structured
+// references (Table1[[#This Row],[Q1]]) is left alone; a reference shifted
+// off the sheet becomes #REF!.
 func shiftFormula(f string, dr, dc int) string {
 	if dr == 0 && dc == 0 {
 		return f
 	}
 	var b strings.Builder
-	inStr, inSheet := false, false
+	inStr, inSheet, brackets := false, false, 0
+	ends := func(i, n int) bool { // the token f[i:i+n] is not part of a longer name or a call
+		j := i + n
+		return j >= len(f) || !(identChar(f[j]) || f[j] == '(')
+	}
 	for i := 0; i < len(f); i++ {
 		ch := f[i]
 		switch {
@@ -444,33 +547,65 @@ func shiftFormula(f string, dr, dc int) string {
 			inStr = true
 		case ch == '\'':
 			inSheet = true
-		case (ch == '$' || ch >= 'A' && ch <= 'Z') && (i == 0 || !identChar(f[i-1])):
-			m := refRe.FindStringSubmatch(f[i:])
-			if m == nil || (i+len(m[0]) < len(f) && (identChar(f[i+len(m[0])]) || f[i+len(m[0])] == '(')) {
-				break
+		case ch == '[':
+			brackets++
+		case ch == ']':
+			brackets = max(0, brackets-1)
+		case brackets > 0:
+		case i > 0 && identChar(f[i-1]):
+		case ch == '$' || ch >= 'A' && ch <= 'Z':
+			if m := colRangeRe.FindStringSubmatch(f[i:]); m != nil && ends(i, len(m[0])) {
+				b.WriteString(shiftCol(m[1], m[2], dc) + ":" + shiftCol(m[3], m[4], dc))
+				i += len(m[0]) - 1
+				continue
 			}
-			col := 0
-			for _, l := range m[2] {
-				col = col*26 + int(l-'A'+1)
+			if m := refRe.FindStringSubmatch(f[i:]); m != nil && ends(i, len(m[0])) {
+				col, row := shiftCol(m[1], m[2], dc), shiftRow(m[3], m[4], dr)
+				if col == "#REF!" || row == "#REF!" {
+					b.WriteString("#REF!")
+				} else {
+					b.WriteString(col + row)
+				}
+				i += len(m[0]) - 1
+				continue
 			}
-			row, _ := strconv.Atoi(m[4])
-			if m[1] == "" {
-				col += dc
+		case ch >= '0' && ch <= '9':
+			if m := rowRangeRe.FindStringSubmatch(f[i:]); m != nil && ends(i, len(m[0])) {
+				b.WriteString(shiftRow(m[1], m[2], dr) + ":" + shiftRow(m[3], m[4], dr))
+				i += len(m[0]) - 1
+				continue
 			}
-			if m[3] == "" {
-				row += dr
-			}
-			if col < 1 || col > excelCols || row < 1 || row > excelRows {
-				b.WriteString("#REF!")
-			} else {
-				b.WriteString(m[1] + grid.ColName(col-1) + m[3] + strconv.Itoa(row))
-			}
-			i += len(m[0]) - 1
-			continue
 		}
 		b.WriteByte(ch)
 	}
 	return b.String()
+}
+
+// shiftCol shifts a column name unless it is anchored ("$").
+func shiftCol(anchor, name string, dc int) string {
+	if anchor != "" {
+		return anchor + name
+	}
+	col := 0
+	for _, l := range name {
+		col = col*26 + int(l-'A'+1)
+	}
+	if col += dc; col < 1 || col > excelCols {
+		return "#REF!"
+	}
+	return grid.ColName(col - 1)
+}
+
+// shiftRow shifts a row number unless it is anchored ("$").
+func shiftRow(anchor, num string, dr int) string {
+	if anchor != "" {
+		return anchor + num
+	}
+	row, _ := strconv.Atoi(num)
+	if row += dr; row < 1 || row > excelRows {
+		return "#REF!"
+	}
+	return strconv.Itoa(row)
 }
 
 func identChar(c byte) bool {

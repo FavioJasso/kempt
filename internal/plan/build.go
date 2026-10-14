@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/FavioJasso/kempt/internal/detect"
 	"github.com/FavioJasso/kempt/internal/grid"
@@ -13,7 +12,7 @@ import (
 )
 
 // MaxIdent is the longest identifier kempt emits (Postgres truncates at 63 bytes).
-const MaxIdent = 63
+const MaxIdent = normalize.MaxIdent
 
 // Options control detection, inference, and naming.
 type Options struct {
@@ -221,29 +220,12 @@ func buildTable(g *grid.Grid, rg *detect.Region, table string, iopts infer.Optio
 	return p
 }
 
-// dedupe truncates name to MaxIdent bytes and appends _2, _3, ... until it
-// is unused, then records it.
+// dedupe makes name a unique identifier of at most MaxIdent bytes.
 func dedupe(name string, seen map[string]bool) string {
-	name = truncate(name, MaxIdent)
-	out := name
-	for i := 2; seen[out]; i++ {
-		suffix := fmt.Sprintf("_%d", i)
-		out = truncate(name, MaxIdent-len(suffix)) + suffix
-	}
-	seen[out] = true
-	return out
+	return normalize.Unique(name, seen, MaxIdent)
 }
 
-// truncate cuts s to at most n bytes without splitting a UTF-8 sequence.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return strings.TrimRight(s[:n], "_")
-}
+func truncate(s string, n int) string { return normalize.Truncate(s, n) }
 
 // UniqueTables renames tables whose names collide across sheets by appending
 // _2, _3, ... in sheet order, skipping names another table already has.

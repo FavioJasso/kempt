@@ -20,9 +20,10 @@ func serveCmd() *cobra.Command {
 		Use:   "serve",
 		Short: "Run the web demo and JSON API",
 		Long: "Run the web demo and JSON API. Loading and querying are enabled when a Postgres DSN\n" +
-			"resolves (--dsn, $KEMPT_DSN, $DATABASE_PUBLIC_URL, $DATABASE_URL). KEMPT_DEMO=1 turns on\n" +
-			"the public-demo limits: 5 MB / 50k rows per upload, 10 requests per minute per IP, and\n" +
-			"hourly cleanup of demo schemas.",
+			"resolves (--dsn, $KEMPT_DSN, $DATABASE_PUBLIC_URL, $DATABASE_URL); loaded schemas and\n" +
+			"their query roles are dropped after an hour. KEMPT_DEMO=1 turns on the public-demo\n" +
+			"limits: 5 MB, 50k rows and 1M cells per upload, two uploads read at a time, and 10\n" +
+			"requests per minute per IP.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if addr == "" {

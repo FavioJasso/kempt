@@ -551,12 +551,17 @@ func (s *sheet) applyFillDown(res *Result, opts Options) []string {
 func matchColumns(want string, cols []HeaderCol) (idx []int, ambiguous bool) {
 	names := columnNames(cols)
 	for j, n := range names {
-		if want == n || want == n+"_pct" {
+		if want == n {
+			return []int{j}, false
+		}
+	}
+	for j, n := range names { // plan adds _pct when the values are percentages
+		if want == normalize.Truncate(n+"_pct", normalize.MaxIdent) {
 			idx = append(idx, j)
 		}
 	}
 	if len(idx) > 0 {
-		return idx, false
+		return idx, len(idx) > 1
 	}
 	for j, hc := range cols {
 		if strings.EqualFold(want, grid.ColName(hc.Col)) {
@@ -588,12 +593,7 @@ func columnNames(cols []HeaderCol) []string {
 		if normalize.SystemColumn(name) {
 			name = "c_" + name
 		}
-		final := name
-		for i := 2; seen[final]; i++ {
-			final = fmt.Sprintf("%s_%d", name, i)
-		}
-		seen[final] = true
-		out[j] = final
+		out[j] = normalize.Unique(name, seen, normalize.MaxIdent)
 	}
 	return out
 }
