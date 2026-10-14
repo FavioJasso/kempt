@@ -218,9 +218,10 @@ They are excellent, and if your file is already a tidy table you should use them
 | Endpoint | |
 |---|---|
 | `GET /healthz` | liveness |
+| `GET /api/config` | `{loadEnabled, demo, maxUploadBytes, maxRows, version}`, which the page uses to show its limits |
 | `GET /api/samples` | the bundled sample files |
 | `POST /api/inspect` | multipart `file` (or `sample`) and optional `keep_totals`, `lenient`, `date_order`, `header_rows`, `skip_rows`, `fill_down`, `sheet` → grid (first 200×30), cell roles, decisions, columns, a 50-row preview, and DDL for all three dialects |
-| `POST /api/load` | same input; loads into a fresh `demo_<random8>` schema → `{schema, token, table, tables, expiresAt}` (Postgres only) |
+| `POST /api/load` | same input; loads into a fresh `demo_<random8>` schema → `{schema, table, tables, expiresAt, queryEnabled}`, plus `token` when `queryEnabled` is true (Postgres only) |
 | `POST /api/query` | `{"schema", "token", "sql"}` → at most 100 rows; values are cut to 2,000 characters, or fewer when a row has more than 50 columns (100,000 characters per row); one read-only statement, 2 s timeout |
 
 Uploads are processed in memory and never written to disk. Each loaded schema gets its own LOGIN role, which can only read that schema, and queries run as that role inside a `READ ONLY` transaction. The role's password comes from `KEMPT_SECRET` and a random token that only the uploader receives, so knowing a schema's name is not enough to query it. The server's own database privileges are never exposed to the SQL console. Loaded schemas, and their roles, are dropped after an hour.
@@ -233,7 +234,9 @@ Other demo users cannot read your rows, but the Postgres catalog is shared: tabl
 | `DATABASE_URL` (or `KEMPT_DSN`, `DATABASE_PUBLIC_URL`) | Postgres for **Load** and **Query** |
 | `KEMPT_DEMO=1` | public-demo limits (below) |
 | `KEMPT_SECRET` | derives the per-schema query passwords; set it so loaded schemas stay queryable across restarts |
-| `KEMPT_TRUST_PROXY=1` | rate-limit by `X-Forwarded-For` (on automatically on Railway); leave it off when clients connect directly |
+| `KEMPT_TRUST_PROXY=1` | rate-limit by the client address a reverse proxy appends to `X-Forwarded-For`; leave it off when clients connect directly |
+| `KEMPT_CLIENT_IP_HEADER` | a header in which your proxy puts the client address, such as `X-Real-IP` or `CF-Connecting-IP`; on Railway kempt uses `X-Real-IP` automatically |
+| `GOMEMLIMIT` | Go's soft memory limit. kempt sets it to 80% of the container's memory limit when it can read one, and reads one spreadsheet at a time per 512 MiB; set it yourself on hosts that hide the limit |
 
 Set `KEMPT_DEMO=1` for a public deployment. It caps uploads at 5 MB (100 MB unzipped), 50,000 rows and 1,000,000 cells, reads at most two spreadsheets at a time, and allows 10 requests per minute per IP. Formulas saved without a computed value are evaluated only in workbooks with up to 8 MB of sheet XML (about 150,000 values); in larger ones they read as `#CALC!`, which kempt logs.
 
@@ -246,12 +249,24 @@ railway login
 railway init -n kempt
 railway add --database postgres
 railway add --service kempt
-railway variables -s kempt --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' --set 'KEMPT_DEMO=1'
+railway status    # note the database service's name for the next line
+railway variable set -s kempt 'DATABASE_URL=${{Postgres.DATABASE_URL}}' KEMPT_DEMO=1 \
+  "KEMPT_SECRET=$(openssl rand -hex 32)" RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15
+railway environment edit --service-config kempt deploy.healthcheckPath /healthz
 railway up -s kempt
 railway domain -s kempt
 ```
 
-Before the `variables` step, check the database service's name with `railway status` and use it in the reference variable (`${{Postgres.DATABASE_URL}}`). The Dockerfile builds a static binary on a distroless image and listens on `$PORT`.
+What each setting does:
+
+- **`DATABASE_URL`** references the database service by name. Use the name `railway status` shows if it isn't `Postgres`.
+- **`KEMPT_SECRET`** keeps loaded schemas queryable across redeploys.
+- **`RAILWAY_DEPLOYMENT_DRAINING_SECONDS`** gives in-flight requests time to finish when a deploy replaces the old one (Railway's default is 0).
+- **The healthcheck path** makes Railway wait until `/healthz` answers before switching traffic to a new deploy.
+
+The same works from the dashboard: deploy the GitHub repo, add a PostgreSQL database, set the variables above on the kempt service, set the healthcheck path in its settings, and generate a domain.
+
+The Dockerfile builds a static binary on a distroless image that listens on `$PORT`. kempt reads the container's memory limit; on Railway's 512 MB plan it reads one spreadsheet at a time.
 
 **Loading from your laptop.** `railway run` injects the Postgres service's variables into a local command, so you don't have to paste a DSN:
 
@@ -259,7 +274,7 @@ Before the `variables` step, check the database service's name with `railway sta
 railway run -s Postgres kempt load budget.xlsx
 ```
 
-This works because kempt checks `DATABASE_PUBLIC_URL` before `DATABASE_URL`: the private URL only resolves inside Railway's network. Confirm the variable names in the Postgres service's Variables tab the first time.
+This works because kempt checks `DATABASE_PUBLIC_URL` before `DATABASE_URL`: the private URL only resolves inside Railway's network. Railway creates `DATABASE_PUBLIC_URL` only once the database has public networking. Turn it on under the Postgres service's Settings → Networking, or run `railway tcp-proxy create --port 5432 --service Postgres`. Public access bills egress, and you can remove it again afterwards.
 
 ## Development
 
@@ -270,6 +285,8 @@ go test ./cmd/kempt -run TestGolden -update    # rewrite testdata/golden/*.json 
 KEMPT_TEST_PG='postgres://user:pass@localhost:5432/db?sslmode=disable' go test ./...   # include Postgres integration tests
 goreleaser release --snapshot --clean          # local cross-platform build
 ```
+
+Dependencies are the ones the design calls for: cobra, excelize, pgx, go-sql-driver/mysql and modernc.org/sqlite. On top of those, kempt uses `golang.org/x/text`, which excelize already pulls in, for accent folding in column names and for reading Windows-1252 CSV files.
 
 Each fixture in `testdata/fixtures` targets specific heuristics, and `testdata/golden` holds the expected `kempt inspect --json` output for each one. `tidy.csv` is the regression guard: kempt must leave an already-clean file unchanged except for the column names.
 

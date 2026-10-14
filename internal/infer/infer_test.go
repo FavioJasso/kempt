@@ -184,6 +184,7 @@ func TestColumn(t *testing.T) {
 			in:     col("Huge", str("1"), str(strings.Repeat("9", 39))),
 			typ:    Type{Base: Text, MaxLen: 39},
 			values: []any{"1", strings.Repeat("9", 39)},
+			decs:   []dec{{grid.KTypeWidened, "Data!C3", 0.6, []string{"more than the 38 digits a NUMERIC column holds"}}},
 		},
 		{
 			name:   "int64 boundary",
@@ -826,5 +827,24 @@ func TestValueFixes(t *testing.T) {
 	r = run("card", []*grid.Cell{big("4111111111111111"), big("1234567890123456789")}, Options{})
 	if !reflect.DeepEqual(r.Values, []any{int64(4111111111111111), int64(1234567890123456789)}) {
 		t.Errorf("exact integers: %v", r.Values)
+	}
+}
+
+// A column of numbers too long for any NUMERIC type stays TEXT, and says so,
+// even in a small table.
+func TestTooWideForNumeric(t *testing.T) {
+	in := col("ids", strs("1234567890123456789012345678901234567890", "12")...)
+	res := Column(in, Options{})
+	if res.Type.Base != Text {
+		t.Fatalf("type %v", res.Type)
+	}
+	var found bool
+	for _, d := range res.Decisions {
+		if d.Kind == grid.KTypeWidened && strings.Contains(d.Reason, "38 digits") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no decision explains TEXT: %+v", res.Decisions)
 	}
 }

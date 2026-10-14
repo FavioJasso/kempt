@@ -92,16 +92,23 @@ func TestClientIP(t *testing.T) {
 	tests := []struct {
 		remote string
 		xff    []string
+		realIP string // X-Real-IP header value
 		trust  bool
+		header string // configured real-IP header
 		want   string
 	}{
-		{"10.0.0.1:5000", nil, true, "10.0.0.1"},
-		{"10.0.0.1:5000", []string{"203.0.113.9"}, true, "203.0.113.9"},
-		{"10.0.0.1:5000", []string{"1.2.3.4, 203.0.113.9"}, true, "203.0.113.9"},
-		{"10.0.0.1:5000", []string{"6.6.6.6", "203.0.113.9"}, true, "203.0.113.9"}, // proxy added its own line
-		{"10.0.0.1:5000", []string{"203.0.113.9"}, false, "10.0.0.1"},              // not behind a proxy: ignore the header
-		{"[::1]:80", nil, false, "::1"},
-		{"bogus", nil, false, "bogus"},
+		{"10.0.0.1:5000", nil, "", true, "", "10.0.0.1"},
+		{"10.0.0.1:5000", []string{"203.0.113.9"}, "", true, "", "203.0.113.9"},
+		{"10.0.0.1:5000", []string{"1.2.3.4, 203.0.113.9"}, "", true, "", "203.0.113.9"},
+		{"10.0.0.1:5000", []string{"6.6.6.6", "203.0.113.9"}, "", true, "", "203.0.113.9"}, // proxy added its own line
+		{"10.0.0.1:5000", []string{"203.0.113.9"}, "", false, "", "10.0.0.1"},              // not behind a proxy: ignore the header
+		{"[::1]:80", nil, "", false, "", "::1"},
+		{"bogus", nil, "", false, "", "bogus"},
+		// Railway: X-Real-IP names the client; X-Forwarded-For ends in Railway's edge.
+		{"10.0.0.1:5000", []string{"198.51.100.7, 100.64.0.2"}, "198.51.100.7", true, "X-Real-IP", "198.51.100.7"},
+		{"10.0.0.1:5000", []string{"198.51.100.7, 100.64.0.2"}, "not an ip", true, "X-Real-IP", "100.64.0.2"},
+		{"10.0.0.1:5000", nil, "", true, "X-Real-IP", "10.0.0.1"},
+		{"10.0.0.1:5000", nil, "198.51.100.7", false, "", "10.0.0.1"}, // header not configured: ignored
 	}
 	for _, tt := range tests {
 		r := httptest.NewRequest("GET", "/", nil)
@@ -109,8 +116,11 @@ func TestClientIP(t *testing.T) {
 		for _, v := range tt.xff {
 			r.Header.Add("X-Forwarded-For", v)
 		}
-		if got := clientIP(r, tt.trust); got != tt.want {
-			t.Errorf("clientIP(%q, %q, trust=%v) = %q, want %q", tt.remote, tt.xff, tt.trust, got, tt.want)
+		if tt.realIP != "" {
+			r.Header.Set("X-Real-IP", tt.realIP)
+		}
+		if got := clientIP(r, tt.trust, tt.header); got != tt.want {
+			t.Errorf("clientIP(%q, xff %q, real %q, trust=%v, header %q) = %q, want %q", tt.remote, tt.xff, tt.realIP, tt.trust, tt.header, got, tt.want)
 		}
 	}
 }

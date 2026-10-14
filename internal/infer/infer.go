@@ -71,6 +71,8 @@ type entry struct {
 	hint    bool                 // numeric cell read as a serial date because of the header
 	textInt *float64             // text that is a plain integer (CSV), a serial candidate under the header hint
 	clock   bool                 // numeric cell with a time-only format: stored as HH:MM:SS text
+	isNum   bool                 // parsed as a number
+	wide    bool                 // a number with more digits than NUMERIC holds
 
 	tried  [2]bool // ParseDate ran for each normalize.DateOrder
 	parsed [2]normalize.ParsedDate
@@ -278,6 +280,7 @@ func (e *entry) numeric() {
 		e.ok[Int] = v >= math.MinInt32 && v <= math.MaxInt32
 	}
 	e.ok[Decimal] = e.num.IntDigits+e.num.Scale <= MaxPrecision
+	e.isNum, e.wide = true, !e.ok[Decimal]
 }
 
 // plainInt parses text written as a bare integer ("46100"): no sign
@@ -401,6 +404,26 @@ func (c *column) choose() {
 		c.add(grid.KTypeWidened, rounded, 0.6, fmt.Sprintf(
 			"Kept column %s as TEXT because its values need up to %d integer digits and up to %d decimal places, more than the %d digits a NUMERIC column holds; NUMERIC(%d,%d) would round %s.",
 			c.name(), maxInt, maxScale, MaxPrecision, MaxPrecision, MaxPrecision-maxInt, c.examples(rounded, false)))
+	}
+	if base == Text && !widened {
+		// Every value is a number, but some have more digits than any
+		// NUMERIC column holds: say why the column stayed TEXT.
+		var wide []int
+		all := total > 0
+		for _, e := range c.es {
+			if !e.isNum {
+				all = false
+				break
+			}
+			if e.wide {
+				wide = append(wide, e.i)
+			}
+		}
+		if all && len(wide) > 0 {
+			c.add(grid.KTypeWidened, wide, 0.6, fmt.Sprintf(
+				"Kept column %s as TEXT because %s more than the %d digits a NUMERIC column holds, so no exact numeric type fits: %s.",
+				c.name(), plural(len(wide), "1 value has", fmt.Sprintf("%d values have", len(wide))), MaxPrecision, c.examples(wide, false)))
+		}
 	}
 	if widened {
 		var idx []int
