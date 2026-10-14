@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kempt
+          POSTGRES_PASSWORD: kempt
+          POSTGRES_DB: kempt
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kempt"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: kempt
+          MYSQL_DATABASE: kempt
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -pkempt"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      KEMPT_TEST_PG: postgres://kempt:kempt@localhost:5432/kempt?sslmode=disable
+      KEMPT_TEST_MYSQL: root:kempt@tcp(127.0.0.1:3306)/kempt?parseTime=true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go test ./testdata/gen   # ./... skips testdata; this rebuilds every fixture byte for byte
+      - name: cross-compile without CGO
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -o /dev/null ./cmd/kempt
+          done

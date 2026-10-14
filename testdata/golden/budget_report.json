@@ -1,0 +1,563 @@
+{
+  "file": "budget_report.xlsx",
+  "sheets": [
+    {
+      "sheet": "Budget Summary",
+      "dimensions": "A1:H19",
+      "decisions": [],
+      "cellRoles": {
+        "A1": "title",
+        "A10": "data",
+        "A11": "data",
+        "A12": "total",
+        "A13": "data",
+        "A14": "data",
+        "A15": "total",
+        "A16": "total",
+        "A17": "blank",
+        "A18": "footer",
+        "A19": "footer",
+        "A2": "title",
+        "A3": "blank",
+        "A4": "header",
+        "A5": "header",
+        "A6": "data",
+        "A7": "data",
+        "A8": "total",
+        "A9": "data",
+        "B1": "title",
+        "B10": "data",
+        "B11": "data",
+        "B12": "blank",
+        "B13": "data",
+        "B14": "data",
+        "B15": "blank",
+        "B16": "blank",
+        "B17": "blank",
+        "B18": "blank",
+        "B19": "blank",
+        "B2": "blank",
+        "B3": "blank",
+        "B4": "header",
+        "B5": "header",
+        "B6": "data",
+        "B7": "data",
+        "B8": "blank",
+        "B9": "data",
+        "C1": "title",
+        "C10": "data",
+        "C11": "data",
+        "C12": "total",
+        "C13": "data",
+        "C14": "data",
+        "C15": "total",
+        "C16": "total",
+        "C17": "blank",
+        "C18": "blank",
+        "C19": "blank",
+        "C2": "blank",
+        "C3": "blank",
+        "C4": "header",
+        "C5": "header",
+        "C6": "data",
+        "C7": "data",
+        "C8": "total",
+        "C9": "data",
+        "D1": "title",
+        "D10": "data",
+        "D11": "data",
+        "D12": "total",
+        "D13": "data",
+        "D14": "data",
+        "D15": "total",
+        "D16": "total",
+        "D17": "blank",
+        "D18": "blank",
+        "D19": "blank",
+        "D2": "blank",
+        "D3": "blank",
+        "D4": "header",
+        "D5": "header",
+        "D6": "data",
+        "D7": "data",
+        "D8": "total",
+        "D9": "data",
+        "E1": "title",
+        "E10": "data",
+        "E11": "data",
+        "E12": "total",
+        "E13": "data",
+        "E14": "data",
+        "E15": "total",
+        "E16": "total",
+        "E17": "blank",
+        "E18": "blank",
+        "E19": "blank",
+        "E2": "blank",
+        "E3": "blank",
+        "E4": "header",
+        "E5": "header",
+        "E6": "data",
+        "E7": "data",
+        "E8": "total",
+        "E9": "data",
+        "F1": "title",
+        "F10": "data",
+        "F11": "data",
+        "F12": "total",
+        "F13": "data",
+        "F14": "null",
+        "F15": "total",
+        "F16": "total",
+        "F17": "blank",
+        "F18": "blank",
+        "F19": "blank",
+        "F2": "blank",
+        "F3": "blank",
+        "F4": "header",
+        "F5": "header",
+        "F6": "data",
+        "F7": "data",
+        "F8": "total",
+        "F9": "data",
+        "G1": "title",
+        "G10": "data",
+        "G11": "data",
+        "G12": "total",
+        "G13": "data",
+        "G14": "data",
+        "G15": "total",
+        "G16": "total",
+        "G17": "blank",
+        "G18": "blank",
+        "G19": "blank",
+        "G2": "blank",
+        "G3": "blank",
+        "G4": "header",
+        "G5": "header",
+        "G6": "data",
+        "G7": "data",
+        "G8": "total",
+        "G9": "data",
+        "H1": "title",
+        "H10": "data",
+        "H11": "null",
+        "H12": "blank",
+        "H13": "blank",
+        "H14": "data",
+        "H15": "blank",
+        "H16": "blank",
+        "H17": "blank",
+        "H18": "blank",
+        "H19": "blank",
+        "H2": "blank",
+        "H3": "blank",
+        "H4": "header",
+        "H5": "header",
+        "H6": "data",
+        "H7": "blank",
+        "H8": "blank",
+        "H9": "blank"
+      },
+      "tables": [
+        {
+          "table": "budget_summary",
+          "region": "A1:H19",
+          "rowCount": 7,
+          "columns": [
+            {
+              "name": "department",
+              "header": "Department",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 18
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "Department"
+            },
+            {
+              "name": "program",
+              "header": "Program",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 19
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Program"
+            },
+            {
+              "name": "fy2025_budget",
+              "header": "FY2025 ($000s) / Budget",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "$000s",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "FY2025 ($000s) / Budget [unit: $000s; values not rescaled]"
+            },
+            {
+              "name": "fy2025_actual",
+              "header": "FY2025 ($000s) / Actual",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "$000s",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "FY2025 ($000s) / Actual [unit: $000s; values not rescaled]"
+            },
+            {
+              "name": "fy2026_budget",
+              "header": "FY2026 ($000s) / Budget",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "$000s",
+              "sourceCols": [
+                "E"
+              ],
+              "comment": "FY2026 ($000s) / Budget [unit: $000s; values not rescaled]"
+            },
+            {
+              "name": "fy2026_actual",
+              "header": "FY2026 ($000s) / Actual",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "$000s",
+              "sourceCols": [
+                "F"
+              ],
+              "comment": "FY2026 ($000s) / Actual [unit: $000s; values not rescaled]"
+            },
+            {
+              "name": "change_pct",
+              "header": "Change (%)",
+              "type": {
+                "base": "decimal",
+                "precision": 2,
+                "scale": 1,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(2,1)",
+                "postgres": "NUMERIC(2,1)",
+                "sqlite": "NUMERIC(2,1)"
+              },
+              "unit": "%",
+              "sourceCols": [
+                "G"
+              ],
+              "comment": "Change (%) [unit: %; values not rescaled]"
+            },
+            {
+              "name": "notes",
+              "header": "Notes",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 23
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "H"
+              ],
+              "comment": "Notes"
+            }
+          ],
+          "rows": [
+            [
+              "Public Works",
+              "Streets",
+              2450,
+              2391,
+              2600,
+              1212,
+              6.1,
+              "Paving backlog"
+            ],
+            [
+              "Public Works",
+              "Fleet",
+              1120,
+              1165,
+              1180,
+              604,
+              5.4,
+              null
+            ],
+            [
+              "Parks & Recreation",
+              "Parks Maintenance",
+              1800,
+              1742,
+              1850,
+              930,
+              2.8,
+              null
+            ],
+            [
+              "Parks & Recreation",
+              "Recreation Programs",
+              960,
+              1010,
+              1020,
+              488,
+              6.3,
+              "Summer camp expansion"
+            ],
+            [
+              "Parks & Recreation",
+              "Fee revenue offset",
+              -1234,
+              -1180,
+              -1300,
+              -655,
+              5.3,
+              null
+            ],
+            [
+              "Public Safety",
+              "Police",
+              5400,
+              5512,
+              5650,
+              2840,
+              4.6,
+              null
+            ],
+            [
+              "Public Safety",
+              "Fire",
+              3900,
+              3860,
+              4010,
+              null,
+              2.8,
+              "New station opens July*"
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "skip_title_row",
+              "range": "'Budget Summary'!A1:H1",
+              "reason": "Row 1 has a single value merged across A:H above the header (row 4); skipped as a title.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "skip_title_row",
+              "range": "'Budget Summary'!A2:H2",
+              "reason": "Row 2 has a single value above the header (row 4); skipped as a title.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "column_name",
+              "range": "'Budget Summary'!C4:C5",
+              "reason": "Header \"FY2025 ($000s) / Budget\" (column C) became fy2025_budget.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "'Budget Summary'!D4:D5",
+              "reason": "Header \"FY2025 ($000s) / Actual\" (column D) became fy2025_actual.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "'Budget Summary'!E4:E5",
+              "reason": "Header \"FY2026 ($000s) / Budget\" (column E) became fy2026_budget.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "'Budget Summary'!F4:F5",
+              "reason": "Header \"FY2026 ($000s) / Actual\" (column F) became fy2026_actual.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "'Budget Summary'!G4:G5",
+              "reason": "Header \"Change (%)\" (column G) became change_pct.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_merge",
+              "range": "'Budget Summary'!A4:H5",
+              "reason": "Rows 4–5 form a two-row header: merged group labels in row 4 (\"FY2025 ($000s)\" over C:D, \"FY2026 ($000s)\" over E:F) are combined with the labels below as group_sub.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_unit",
+              "range": "'Budget Summary'!C4:C5",
+              "reason": "Unit \"$000s\" moved from the header \"FY2025 ($000s)\" into the column comment of fy2025_budget; values are not rescaled.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_unit",
+              "range": "'Budget Summary'!D4:D5",
+              "reason": "Unit \"$000s\" moved from the header \"FY2025 ($000s)\" into the column comment of fy2025_actual; values are not rescaled.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_unit",
+              "range": "'Budget Summary'!E4:E5",
+              "reason": "Unit \"$000s\" moved from the header \"FY2026 ($000s)\" into the column comment of fy2026_budget; values are not rescaled.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_unit",
+              "range": "'Budget Summary'!F4:F5",
+              "reason": "Unit \"$000s\" moved from the header \"FY2026 ($000s)\" into the column comment of fy2026_actual; values are not rescaled.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_unit",
+              "range": "'Budget Summary'!G4:G5",
+              "reason": "Unit \"%\" moved from the header \"Change (%)\" into the column comment of change_pct; values are not rescaled.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "header_row",
+              "range": "'Budget Summary'!A5:H5",
+              "reason": "Row 5 scored highest as the header (3.45: 100% filled, 100% labels, 75% unique, next rows 70% more numeric); the next best row (row 6) scored 2.45; row 4 above holds its group labels.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "drop_total_row",
+              "range": "'Budget Summary'!A8:H8",
+              "reason": "Row 8 is labeled \"Total Public Works\"; C8 equals the sum of its group (3570). Dropped as a totals row (use --keep-totals to keep it).",
+              "confidence": 0.97
+            },
+            {
+              "kind": "accounting_negative",
+              "range": "'Budget Summary'!C11",
+              "reason": "Read 1 value in column fy2025_budget as negative because it is written in accounting style (parentheses or a trailing minus): C11 (\"(1,234)\" → -1234).",
+              "confidence": 0.95
+            },
+            {
+              "kind": "accounting_negative",
+              "range": "'Budget Summary'!D11",
+              "reason": "Read 1 value in column fy2025_actual as negative because it is written in accounting style (parentheses or a trailing minus): D11 (\"(1,180)\" → -1180).",
+              "confidence": 0.95
+            },
+            {
+              "kind": "accounting_negative",
+              "range": "'Budget Summary'!E11",
+              "reason": "Read 1 value in column fy2026_budget as negative because it is written in accounting style (parentheses or a trailing minus): E11 (\"(1,300)\" → -1300).",
+              "confidence": 0.95
+            },
+            {
+              "kind": "accounting_negative",
+              "range": "'Budget Summary'!F11",
+              "reason": "Read 1 value in column fy2026_actual as negative because it is written in accounting style (parentheses or a trailing minus): F11 (\"(655)\" → -655).",
+              "confidence": 0.95
+            },
+            {
+              "kind": "null_token",
+              "range": "'Budget Summary'!H11",
+              "reason": "Read 1 value in column notes as NULL because it is a missing-value placeholder: H11 (\"—\").",
+              "confidence": 0.95
+            },
+            {
+              "kind": "drop_total_row",
+              "range": "'Budget Summary'!A12:H12",
+              "reason": "Row 12 is labeled \"Total Parks & Recreation\"; C12 equals the sum of its group (1526). Dropped as a totals row (use --keep-totals to keep it).",
+              "confidence": 0.97
+            },
+            {
+              "kind": "null_token",
+              "range": "'Budget Summary'!F14",
+              "reason": "Read 1 value in column fy2026_actual as NULL because it is a missing-value placeholder: F14 (\"N/A\").",
+              "confidence": 0.95
+            },
+            {
+              "kind": "drop_total_row",
+              "range": "'Budget Summary'!A15:H15",
+              "reason": "Row 15 is labeled \"Total Public Safety\"; C15 equals the sum of its group (9300). Dropped as a totals row (use --keep-totals to keep it).",
+              "confidence": 0.97
+            },
+            {
+              "kind": "drop_total_row",
+              "range": "'Budget Summary'!A16:H16",
+              "reason": "Row 16 is labeled \"Grand Total\"; C16 equals the sum of every data row above (14396). Dropped as a totals row (use --keep-totals to keep it).",
+              "confidence": 0.97
+            },
+            {
+              "kind": "skip_footer",
+              "range": "'Budget Summary'!A18:H18",
+              "reason": "Row 18 follows the last data row and holds a single note (\"Source: Riverton Finance Department, FY…\"); dropped as a footer.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "skip_footer",
+              "range": "'Budget Summary'!A19:H19",
+              "reason": "Row 19 follows the last data row and holds a single note (\"* FY2026 actuals are year-to-date throu…\"); dropped as a footer.",
+              "confidence": 0.9
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

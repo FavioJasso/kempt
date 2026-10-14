@@ -1,0 +1,207 @@
+{
+  "file": "ambiguous_dates.csv",
+  "sheets": [
+    {
+      "sheet": "ambiguous_dates",
+      "dimensions": "A1:D9",
+      "decisions": [],
+      "cellRoles": {
+        "A1": "header",
+        "A2": "data",
+        "A3": "data",
+        "A4": "data",
+        "A5": "data",
+        "A6": "data",
+        "A7": "data",
+        "A8": "data",
+        "A9": "data",
+        "B1": "header",
+        "B2": "data",
+        "B3": "data",
+        "B4": "data",
+        "B5": "data",
+        "B6": "data",
+        "B7": "data",
+        "B8": "data",
+        "B9": "data",
+        "C1": "header",
+        "C2": "data",
+        "C3": "data",
+        "C4": "data",
+        "C5": "data",
+        "C6": "data",
+        "C7": "data",
+        "C8": "data",
+        "C9": "data",
+        "D1": "header",
+        "D2": "data",
+        "D3": "data",
+        "D4": "data",
+        "D5": "data",
+        "D6": "data",
+        "D7": "data",
+        "D8": "data",
+        "D9": "data"
+      },
+      "tables": [
+        {
+          "table": "ambiguous_dates",
+          "region": "A1:D9",
+          "rowCount": 8,
+          "columns": [
+            {
+              "name": "id",
+              "header": "id",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "id"
+            },
+            {
+              "name": "event",
+              "header": "event",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 16
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(16)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "event"
+            },
+            {
+              "name": "event_date",
+              "header": "event_date",
+              "type": {
+                "base": "date",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DATE",
+                "postgres": "DATE",
+                "sqlite": "DATE"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "event_date"
+            },
+            {
+              "name": "amount",
+              "header": "amount",
+              "type": {
+                "base": "decimal",
+                "precision": 5,
+                "scale": 2,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(5,2)",
+                "postgres": "NUMERIC(5,2)",
+                "sqlite": "NUMERIC(5,2)"
+              },
+              "unit": "",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "amount"
+            }
+          ],
+          "rows": [
+            [
+              1,
+              "Kickoff meeting",
+              "2026-03-04",
+              12.50
+            ],
+            [
+              2,
+              "Design review",
+              "2026-05-06",
+              7.25
+            ],
+            [
+              3,
+              "Budget sign-off",
+              "2026-01-02",
+              30.00
+            ],
+            [
+              4,
+              "Vendor demo",
+              "2026-11-12",
+              18.75
+            ],
+            [
+              5,
+              "Team offsite",
+              "2026-07-08",
+              145.20
+            ],
+            [
+              6,
+              "Quarterly report",
+              "2026-02-03",
+              9.99
+            ],
+            [
+              7,
+              "Security audit",
+              "2026-09-10",
+              60.00
+            ],
+            [
+              8,
+              "Holiday party",
+              "2026-12-11",
+              220.40
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "header_row",
+              "range": "ambiguous_dates!A1:D1",
+              "reason": "Row 1 scored highest as the header (3.75: 100% filled, 100% labels, 100% unique, next rows 75% more numeric); the next best row (row 2) scored 2.25.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "date_order",
+              "range": "ambiguous_dates!C2:C9",
+              "reason": "Every numeric date in column event_date reads as either month/day or day/month, for example C2 (\"03/04/2026\"); read them as month/day (MM/DD). Use --date-order dmy if they are day/month.",
+              "confidence": 0.5
+            },
+            {
+              "kind": "date_parse",
+              "range": "ambiguous_dates!C2:C9",
+              "reason": "Parsed 8 text dates in column event_date into date values; layouts seen: MM/DD/YYYY (8). Examples: C2 (\"03/04/2026\" → 2026-03-04), C3 (\"05/06/2026\" → 2026-05-06), C4 (\"01/02/2026\" → 2026-01-02), C5 (\"11/12/2026\" → 2026-11-12), C6 (\"07/08/2026\" → 2026-07-08) and 3 more.",
+              "confidence": 0.9
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

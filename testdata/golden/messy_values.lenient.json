@@ -1,0 +1,664 @@
+{
+  "file": "messy_values.xlsx",
+  "sheets": [
+    {
+      "sheet": "Orders",
+      "dimensions": "A1:K13",
+      "decisions": [],
+      "cellRoles": {
+        "A1": "header",
+        "A10": "data",
+        "A11": "data",
+        "A12": "data",
+        "A13": "data",
+        "A2": "data",
+        "A3": "data",
+        "A4": "data",
+        "A5": "data",
+        "A6": "data",
+        "A7": "data",
+        "A8": "data",
+        "A9": "data",
+        "B1": "header",
+        "B10": "data",
+        "B11": "data",
+        "B12": "data",
+        "B13": "data",
+        "B2": "data",
+        "B3": "data",
+        "B4": "data",
+        "B5": "data",
+        "B6": "data",
+        "B7": "data",
+        "B8": "data",
+        "B9": "data",
+        "C1": "header",
+        "C10": "data",
+        "C11": "data",
+        "C12": "null",
+        "C13": "data",
+        "C2": "data",
+        "C3": "data",
+        "C4": "data",
+        "C5": "data",
+        "C6": "data",
+        "C7": "data",
+        "C8": "data",
+        "C9": "data",
+        "D1": "header",
+        "D10": "data",
+        "D11": "data",
+        "D12": "data",
+        "D13": "data",
+        "D2": "data",
+        "D3": "data",
+        "D4": "data",
+        "D5": "data",
+        "D6": "data",
+        "D7": "data",
+        "D8": "data",
+        "D9": "data",
+        "E1": "header",
+        "E10": "data",
+        "E11": "data",
+        "E12": "data",
+        "E13": "data",
+        "E2": "data",
+        "E3": "data",
+        "E4": "data",
+        "E5": "null",
+        "E6": "data",
+        "E7": "data",
+        "E8": "data",
+        "E9": "data",
+        "F1": "header",
+        "F10": "data",
+        "F11": "data",
+        "F12": "data",
+        "F13": "data",
+        "F2": "data",
+        "F3": "data",
+        "F4": "data",
+        "F5": "null",
+        "F6": "data",
+        "F7": "data",
+        "F8": "data",
+        "F9": "data",
+        "G1": "header",
+        "G10": "data",
+        "G11": "data",
+        "G12": "data",
+        "G13": "data",
+        "G2": "data",
+        "G3": "data",
+        "G4": "data",
+        "G5": "null",
+        "G6": "data",
+        "G7": "data",
+        "G8": "data",
+        "G9": "data",
+        "H1": "header",
+        "H10": "data",
+        "H11": "data",
+        "H12": "data",
+        "H13": "data",
+        "H2": "data",
+        "H3": "data",
+        "H4": "data",
+        "H5": "data",
+        "H6": "data",
+        "H7": "data",
+        "H8": "null",
+        "H9": "data",
+        "I1": "header",
+        "I10": "data",
+        "I11": "data",
+        "I12": "data",
+        "I13": "data",
+        "I2": "data",
+        "I3": "data",
+        "I4": "data",
+        "I5": "data",
+        "I6": "data",
+        "I7": "data",
+        "I8": "data",
+        "I9": "data",
+        "J1": "header",
+        "J10": "data",
+        "J11": "data",
+        "J12": "data",
+        "J13": "data",
+        "J2": "data",
+        "J3": "data",
+        "J4": "data",
+        "J5": "data",
+        "J6": "data",
+        "J7": "data",
+        "J8": "data",
+        "J9": "data",
+        "K1": "header",
+        "K10": "data",
+        "K11": "data",
+        "K12": "data",
+        "K13": "data",
+        "K2": "data",
+        "K3": "data",
+        "K4": "data",
+        "K5": "data",
+        "K6": "null",
+        "K7": "data",
+        "K8": "data",
+        "K9": "data"
+      },
+      "tables": [
+        {
+          "table": "orders",
+          "region": "A1:K13",
+          "rowCount": 12,
+          "columns": [
+            {
+              "name": "order_id",
+              "header": "Order ID",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "Order ID"
+            },
+            {
+              "name": "order_date",
+              "header": "Order Date",
+              "type": {
+                "base": "date",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DATE",
+                "postgres": "DATE",
+                "sqlite": "DATE"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Order Date"
+            },
+            {
+              "name": "ship_date",
+              "header": "Ship Date",
+              "type": {
+                "base": "date",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DATE",
+                "postgres": "DATE",
+                "sqlite": "DATE"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "Ship Date"
+            },
+            {
+              "name": "customer",
+              "header": "Customer",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 18
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "Customer"
+            },
+            {
+              "name": "amount",
+              "header": "Amount",
+              "type": {
+                "base": "decimal",
+                "precision": 7,
+                "scale": 2,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(7,2)",
+                "postgres": "NUMERIC(7,2)",
+                "sqlite": "NUMERIC(7,2)"
+              },
+              "unit": "$",
+              "sourceCols": [
+                "E"
+              ],
+              "comment": "Amount [unit: $]"
+            },
+            {
+              "name": "discount_pct",
+              "header": "Discount",
+              "type": {
+                "base": "decimal",
+                "precision": 3,
+                "scale": 1,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(3,1)",
+                "postgres": "NUMERIC(3,1)",
+                "sqlite": "NUMERIC(3,1)"
+              },
+              "unit": "%",
+              "sourceCols": [
+                "F"
+              ],
+              "comment": "Discount [unit: %]"
+            },
+            {
+              "name": "margin",
+              "header": "Margin",
+              "type": {
+                "base": "decimal",
+                "precision": 3,
+                "scale": 2,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(3,2)",
+                "postgres": "NUMERIC(3,2)",
+                "sqlite": "NUMERIC(3,2)"
+              },
+              "unit": "",
+              "sourceCols": [
+                "G"
+              ],
+              "comment": "Margin"
+            },
+            {
+              "name": "units",
+              "header": "Units",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "H"
+              ],
+              "comment": "Units"
+            },
+            {
+              "name": "invoice_date",
+              "header": "Invoice Date",
+              "type": {
+                "base": "date",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DATE",
+                "postgres": "DATE",
+                "sqlite": "DATE"
+              },
+              "unit": "",
+              "sourceCols": [
+                "I"
+              ],
+              "comment": "Invoice Date"
+            },
+            {
+              "name": "paid",
+              "header": "Paid",
+              "type": {
+                "base": "bool",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "BOOLEAN",
+                "postgres": "BOOLEAN",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "J"
+              ],
+              "comment": "Paid"
+            },
+            {
+              "name": "region_code",
+              "header": "Region Code",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 2
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(2)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "K"
+              ],
+              "comment": "Region Code"
+            }
+          ],
+          "rows": [
+            [
+              1001,
+              "2026-03-02",
+              "2026-03-15",
+              "Acme Corp",
+              1200.50,
+              12,
+              0.32,
+              10,
+              "2026-03-19",
+              true,
+              "NE"
+            ],
+            [
+              1002,
+              "2026-03-03",
+              "2026-03-16",
+              "Birch & Co",
+              89.99,
+              5,
+              0.18,
+              2,
+              "2026-03-20",
+              true,
+              "SW"
+            ],
+            [
+              1003,
+              "2026-03-04",
+              "2026-03-17",
+              "Cobalt Labs",
+              15000.00,
+              0,
+              0.41,
+              150,
+              "2026-03-21",
+              false,
+              "SE"
+            ],
+            [
+              1004,
+              "2026-03-05",
+              "2026-03-18",
+              "Delta Freight",
+              null,
+              null,
+              null,
+              4,
+              "2026-03-22",
+              false,
+              "NW"
+            ],
+            [
+              1005,
+              "2026-03-06",
+              "2026-03-19",
+              "Evergreen Foods",
+              350.25,
+              15,
+              0.27,
+              7,
+              "2026-03-23",
+              true,
+              null
+            ],
+            [
+              1006,
+              "2026-03-07",
+              "2026-03-20",
+              "Foxglove Design",
+              42.10,
+              10,
+              0.09,
+              1,
+              "2026-03-24",
+              true,
+              "MW"
+            ],
+            [
+              1007,
+              "2026-03-08",
+              "2026-03-21",
+              "Granite Supply",
+              -75.00,
+              5,
+              -0.05,
+              null,
+              "2026-03-25",
+              false,
+              "NE"
+            ],
+            [
+              1008,
+              "2026-03-09",
+              "2026-03-22",
+              "Harbor Marine",
+              1999.99,
+              20,
+              0.36,
+              25,
+              "2026-03-26",
+              true,
+              "SW"
+            ],
+            [
+              1009,
+              "2026-03-10",
+              "2026-03-23",
+              "Ivy Analytics",
+              -120.00,
+              0,
+              -0.12,
+              3,
+              "2026-03-27",
+              false,
+              "SE"
+            ],
+            [
+              1010,
+              "2026-03-11",
+              "2026-03-24",
+              "Juniper Tech",
+              64.00,
+              12.5,
+              0.22,
+              8,
+              "2026-03-28",
+              true,
+              "NW"
+            ],
+            [
+              1011,
+              "2026-03-12",
+              null,
+              "Kestrel Outfitters",
+              8.75,
+              5,
+              0.15,
+              1,
+              "2026-03-29",
+              false,
+              "MW"
+            ],
+            [
+              1012,
+              "2026-03-13",
+              "2026-03-26",
+              "Lumen Health",
+              2300.40,
+              10,
+              0.29,
+              40,
+              "2026-03-30",
+              true,
+              "NE"
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "column_name",
+              "range": "Orders!A1",
+              "reason": "Header \"Order ID\" (column A) became order_id.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Orders!B1",
+              "reason": "Header \"Order Date\" (column B) became order_date.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Orders!C1",
+              "reason": "Header \"Ship Date\" (column C) became ship_date.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Orders!F1",
+              "reason": "Header \"Discount\" (column F) became discount_pct.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Orders!I1",
+              "reason": "Header \"Invoice Date\" (column I) became invoice_date.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "Orders!K1",
+              "reason": "Header \"Region Code\" (column K) became region_code.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_row",
+              "range": "Orders!A1:K1",
+              "reason": "Row 1 scored highest as the header (3.76: 100% filled, 100% labels, 100% unique, next rows 76% more numeric); the next best row (row 5) scored 2.44.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "date_order",
+              "range": "Orders!C2:C13",
+              "reason": "Read the numeric dates in column ship_date as month/day (MM/DD) because C2 (\"03/15/2026\") only makes sense that way.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "date_parse",
+              "range": "Orders!C2:C13",
+              "reason": "Parsed 11 text dates in column ship_date into date values; layouts seen: MM/DD/YYYY (3); M/D/YY (2); Mon D, YYYY (2); D-Mon-YYYY (2); YYYY-MM-DD (1); M/D/YYYY (1). Examples: C2 (\"03/15/2026\" → 2026-03-15), C3 (\"3/16/26\" → 2026-03-16), C4 (\"Mar 17, 2026\" → 2026-03-17), C5 (\"18-Mar-2026\" → 2026-03-18), C6 (\"2026-03-19\" → 2026-03-19) and 6 more. Two-digit years follow Excel's rule: 00–29 are 2000–2029 and 30–99 are 1930–1999.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "excel_serial",
+              "range": "Orders!B2:B13",
+              "reason": "Converted 12 values in column order_date from Excel serial numbers to dates because the cells use a date number format: B2 (\"46083\" → 2026-03-02), B3 (\"46084\" → 2026-03-03), B4 (\"46085\" → 2026-03-04), B5 (\"46086\" → 2026-03-05), B6 (\"46087\" → 2026-03-06) and 7 more.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "excel_serial",
+              "range": "Orders!I2:I13",
+              "reason": "Converted 12 values in column invoice_date from Excel serial numbers to dates because the header \"Invoice Date\" suggests dates and every number is a plausible serial (20000 to 80000): I2 (\"46100\" → 2026-03-19), I3 (\"46101\" → 2026-03-20), I4 (\"46102\" → 2026-03-21), I5 (\"46103\" → 2026-03-22), I6 (\"46104\" → 2026-03-23) and 7 more.",
+              "confidence": 0.8
+            },
+            {
+              "kind": "percent",
+              "range": "Orders!F2:F13",
+              "reason": "Every value in column discount_pct is a percentage; values are stored as shown (12% is stored as 12, not divided by 100) and the column is suffixed _pct: F2 (\"12%\" → 12), F3 (\"5%\" → 5), F4 (\"0%\" → 0), F6 (\"15%\" → 15), F7 (\"10%\" → 10) and 6 more.",
+              "confidence": 0.9
+            },
+            {
+              "kind": "strip_currency",
+              "range": "Orders!E2:E13",
+              "reason": "Removed the currency symbol $ from 9 values in column amount: E2 (\"$1,200.50\" → 1200.50), E3 (\"$89.99\" → 89.99), E4 (\"$15,000.00\" → 15000.00), E6 (\"$350.25\" → 350.25), E7 (\"$42.10\" → 42.10) and 4 more.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "excel_error",
+              "range": "Orders!G5",
+              "reason": "Read 1 value in column margin as NULL because it is an Excel error value: G5 (\"#DIV/0!\").",
+              "confidence": 0.9
+            },
+            {
+              "kind": "null_token",
+              "range": "Orders!E5",
+              "reason": "Read 1 value in column amount as NULL because it is a missing-value placeholder: E5 (\"—\").",
+              "confidence": 0.95
+            },
+            {
+              "kind": "null_token",
+              "range": "Orders!F5",
+              "reason": "Read 1 value in column discount_pct as NULL because it is a missing-value placeholder: F5 (\"N/A\").",
+              "confidence": 0.95
+            },
+            {
+              "kind": "null_token",
+              "range": "Orders!K6",
+              "reason": "Read 1 value in column region_code as NULL because NA is a missing-value placeholder, but the column holds short codes, so NA may be a real code (North America, Namibia): K6 (\"NA\").",
+              "confidence": 0.5
+            },
+            {
+              "kind": "accounting_negative",
+              "range": "Orders!E8:E10",
+              "reason": "Read 2 values in column amount as negative because they are written in accounting style (parentheses or a trailing minus): E8 (\"75.00-\" → -75.00), E10 (\"(120.00)\" → -120.00).",
+              "confidence": 0.95
+            },
+            {
+              "kind": "cast_fail_null",
+              "range": "Orders!H8",
+              "reason": "Cast column units to int because 11 of 12 values (92%) parse, meeting --lenient 0.9; the 1 value that did not parse became NULL: H8 (\"see note\").",
+              "confidence": 0.92
+            },
+            {
+              "kind": "null_token",
+              "range": "Orders!C12",
+              "reason": "Read 1 value in column ship_date as NULL because it is a missing-value placeholder: C12 (\"N/A\").",
+              "confidence": 0.95
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

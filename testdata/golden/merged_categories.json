@@ -1,0 +1,304 @@
+{
+  "file": "merged_categories.xlsx",
+  "sheets": [
+    {
+      "sheet": "Inventory",
+      "dimensions": "A1:E13",
+      "decisions": [],
+      "cellRoles": {
+        "A1": "header",
+        "A10": "data",
+        "A11": "data",
+        "A12": "data",
+        "A13": "data",
+        "A2": "data",
+        "A3": "data",
+        "A4": "data",
+        "A5": "data",
+        "A6": "data",
+        "A7": "data",
+        "A8": "data",
+        "A9": "data",
+        "B1": "header",
+        "B10": "data",
+        "B11": "data",
+        "B12": "data",
+        "B13": "data",
+        "B2": "data",
+        "B3": "data",
+        "B4": "data",
+        "B5": "data",
+        "B6": "data",
+        "B7": "data",
+        "B8": "data",
+        "B9": "data",
+        "C1": "header",
+        "C10": "data",
+        "C11": "data",
+        "C12": "data",
+        "C13": "data",
+        "C2": "data",
+        "C3": "data",
+        "C4": "data",
+        "C5": "data",
+        "C6": "data",
+        "C7": "data",
+        "C8": "data",
+        "C9": "data",
+        "D1": "header",
+        "D10": "data",
+        "D11": "data",
+        "D12": "data",
+        "D13": "data",
+        "D2": "data",
+        "D3": "data",
+        "D4": "data",
+        "D5": "data",
+        "D6": "data",
+        "D7": "data",
+        "D8": "data",
+        "D9": "data",
+        "E1": "header",
+        "E10": "data",
+        "E11": "data",
+        "E12": "data",
+        "E13": "data",
+        "E2": "data",
+        "E3": "data",
+        "E4": "data",
+        "E5": "data",
+        "E6": "data",
+        "E7": "data",
+        "E8": "data",
+        "E9": "data"
+      },
+      "tables": [
+        {
+          "table": "inventory",
+          "region": "A1:E13",
+          "rowCount": 12,
+          "columns": [
+            {
+              "name": "category",
+              "header": "Category",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 15
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(16)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "Category"
+            },
+            {
+              "name": "item",
+              "header": "Item",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 20
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Item"
+            },
+            {
+              "name": "sku",
+              "header": "SKU",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 7
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(8)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "SKU"
+            },
+            {
+              "name": "qty",
+              "header": "Qty",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "Qty"
+            },
+            {
+              "name": "unit_price",
+              "header": "Unit Price",
+              "type": {
+                "base": "decimal",
+                "precision": 5,
+                "scale": 2,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(5,2)",
+                "postgres": "NUMERIC(5,2)",
+                "sqlite": "NUMERIC(5,2)"
+              },
+              "unit": "",
+              "sourceCols": [
+                "E"
+              ],
+              "comment": "Unit Price"
+            }
+          ],
+          "rows": [
+            [
+              "Electronics",
+              "Wireless Mouse",
+              "EL-1001",
+              45,
+              24.5
+            ],
+            [
+              "Electronics",
+              "Mechanical Keyboard",
+              "EL-1002",
+              20,
+              129.99
+            ],
+            [
+              "Electronics",
+              "27-inch Monitor",
+              "EL-1003",
+              12,
+              349
+            ],
+            [
+              "Electronics",
+              "USB-C Hub",
+              "EL-1004",
+              30,
+              39.99
+            ],
+            [
+              "Furniture",
+              "Standing Desk",
+              "FU-2001",
+              5,
+              899
+            ],
+            [
+              "Furniture",
+              "Ergonomic Chair",
+              "FU-2002",
+              8,
+              459.5
+            ],
+            [
+              "Furniture",
+              "Bookshelf",
+              "FU-2003",
+              6,
+              189.99
+            ],
+            [
+              "Office Supplies",
+              "Stapler",
+              "OS-3001",
+              60,
+              12.75
+            ],
+            [
+              "Office Supplies",
+              "Printer Paper (case)",
+              "00731",
+              100,
+              42
+            ],
+            [
+              "Office Supplies",
+              "Gel Pens (12-pack)",
+              "OS-3003",
+              80,
+              9.99
+            ],
+            [
+              "Office Supplies",
+              "Sticky Notes",
+              "OS-3004",
+              120,
+              6.5
+            ],
+            [
+              "Office Supplies",
+              "Desk Organizer",
+              "OS-3005",
+              25,
+              18.25
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "column_name",
+              "range": "Inventory!E1",
+              "reason": "Header \"Unit Price\" (column E) became unit_price.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_row",
+              "range": "Inventory!A1:E1",
+              "reason": "Row 1 scored highest as the header (3.40: 100% filled, 100% labels, 100% unique, next rows 40% more numeric); the next best row (row 2) scored 2.60.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "fill_down",
+              "range": "Inventory!A2:A5",
+              "reason": "Merged cell A2:A5 (\"Electronics\") spans 4 rows; its value was copied into the 3 data row(s) below the first.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "fill_down",
+              "range": "Inventory!A6:A8",
+              "reason": "Merged cell A6:A8 (\"Furniture\") spans 3 rows; its value was copied into the 2 data row(s) below the first.",
+              "confidence": 0.95
+            },
+            {
+              "kind": "fill_down",
+              "range": "Inventory!A9:A13",
+              "reason": "Merged cell A9:A13 (\"Office Supplies\") spans 5 rows; its value was copied into the 4 data row(s) below the first.",
+              "confidence": 0.95
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

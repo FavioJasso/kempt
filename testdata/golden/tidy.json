@@ -1,0 +1,391 @@
+{
+  "file": "tidy.csv",
+  "sheets": [
+    {
+      "sheet": "tidy",
+      "dimensions": "A1:H11",
+      "decisions": [],
+      "cellRoles": {
+        "A1": "header",
+        "A10": "data",
+        "A11": "data",
+        "A2": "data",
+        "A3": "data",
+        "A4": "data",
+        "A5": "data",
+        "A6": "data",
+        "A7": "data",
+        "A8": "data",
+        "A9": "data",
+        "B1": "header",
+        "B10": "data",
+        "B11": "data",
+        "B2": "data",
+        "B3": "data",
+        "B4": "data",
+        "B5": "data",
+        "B6": "data",
+        "B7": "data",
+        "B8": "data",
+        "B9": "data",
+        "C1": "header",
+        "C10": "data",
+        "C11": "data",
+        "C2": "data",
+        "C3": "data",
+        "C4": "data",
+        "C5": "data",
+        "C6": "data",
+        "C7": "data",
+        "C8": "data",
+        "C9": "data",
+        "D1": "header",
+        "D10": "data",
+        "D11": "data",
+        "D2": "data",
+        "D3": "data",
+        "D4": "data",
+        "D5": "data",
+        "D6": "data",
+        "D7": "data",
+        "D8": "data",
+        "D9": "data",
+        "E1": "header",
+        "E10": "data",
+        "E11": "data",
+        "E2": "data",
+        "E3": "data",
+        "E4": "data",
+        "E5": "data",
+        "E6": "data",
+        "E7": "data",
+        "E8": "data",
+        "E9": "data",
+        "F1": "header",
+        "F10": "data",
+        "F11": "data",
+        "F2": "data",
+        "F3": "data",
+        "F4": "data",
+        "F5": "data",
+        "F6": "data",
+        "F7": "data",
+        "F8": "data",
+        "F9": "data",
+        "G1": "header",
+        "G10": "data",
+        "G11": "data",
+        "G2": "data",
+        "G3": "data",
+        "G4": "data",
+        "G5": "data",
+        "G6": "data",
+        "G7": "data",
+        "G8": "data",
+        "G9": "data",
+        "H1": "header",
+        "H10": "data",
+        "H11": "data",
+        "H2": "data",
+        "H3": "data",
+        "H4": "data",
+        "H5": "data",
+        "H6": "data",
+        "H7": "data",
+        "H8": "data",
+        "H9": "data"
+      },
+      "tables": [
+        {
+          "table": "tidy",
+          "region": "A1:H11",
+          "rowCount": 10,
+          "columns": [
+            {
+              "name": "id",
+              "header": "ID",
+              "type": {
+                "base": "int",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "INT",
+                "postgres": "INTEGER",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "A"
+              ],
+              "comment": "ID"
+            },
+            {
+              "name": "name",
+              "header": "Name",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 17
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "B"
+              ],
+              "comment": "Name"
+            },
+            {
+              "name": "email",
+              "header": "Email",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 21
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(32)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "C"
+              ],
+              "comment": "Email"
+            },
+            {
+              "name": "city",
+              "header": "City",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 11
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(16)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "D"
+              ],
+              "comment": "City"
+            },
+            {
+              "name": "signup_date",
+              "header": "Signup Date",
+              "type": {
+                "base": "date",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DATE",
+                "postgres": "DATE",
+                "sqlite": "DATE"
+              },
+              "unit": "",
+              "sourceCols": [
+                "E"
+              ],
+              "comment": "Signup Date"
+            },
+            {
+              "name": "plan",
+              "header": "Plan",
+              "type": {
+                "base": "text",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 10
+              },
+              "sqlType": {
+                "mysql": "VARCHAR(16)",
+                "postgres": "TEXT",
+                "sqlite": "TEXT"
+              },
+              "unit": "",
+              "sourceCols": [
+                "F"
+              ],
+              "comment": "Plan"
+            },
+            {
+              "name": "monthly_spend",
+              "header": "Monthly Spend",
+              "type": {
+                "base": "decimal",
+                "precision": 6,
+                "scale": 2,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "DECIMAL(6,2)",
+                "postgres": "NUMERIC(6,2)",
+                "sqlite": "NUMERIC(6,2)"
+              },
+              "unit": "",
+              "sourceCols": [
+                "G"
+              ],
+              "comment": "Monthly Spend"
+            },
+            {
+              "name": "active",
+              "header": "Active",
+              "type": {
+                "base": "bool",
+                "precision": 0,
+                "scale": 0,
+                "maxLen": 0
+              },
+              "sqlType": {
+                "mysql": "BOOLEAN",
+                "postgres": "BOOLEAN",
+                "sqlite": "INTEGER"
+              },
+              "unit": "",
+              "sourceCols": [
+                "H"
+              ],
+              "comment": "Active"
+            }
+          ],
+          "rows": [
+            [
+              1,
+              "Ada Lovelace",
+              "ada@example.com",
+              "London",
+              "2026-01-15",
+              "Pro",
+              49,
+              true
+            ],
+            [
+              2,
+              "Grace Hopper",
+              "grace@example.com",
+              "Arlington",
+              "2026-01-22",
+              "Team",
+              120.75,
+              true
+            ],
+            [
+              3,
+              "Alan Turing",
+              "alan@example.com",
+              "Manchester",
+              "2026-02-03",
+              "Free",
+              0,
+              false
+            ],
+            [
+              4,
+              "Katherine Johnson",
+              "katherine@example.com",
+              "Hampton",
+              "2026-02-11",
+              "Pro",
+              19.5,
+              true
+            ],
+            [
+              5,
+              "Edsger Dijkstra",
+              "edsger@example.com",
+              "Austin",
+              "2026-02-27",
+              "Team",
+              240,
+              false
+            ],
+            [
+              6,
+              "Barbara Liskov",
+              "barbara@example.com",
+              "Boston",
+              "2026-03-04",
+              "Enterprise",
+              1250.25,
+              true
+            ],
+            [
+              7,
+              "Donald Knuth",
+              "donald@example.com",
+              "Stanford",
+              "2026-03-18",
+              "Pro",
+              49,
+              true
+            ],
+            [
+              8,
+              "Margaret Hamilton",
+              "margaret@example.com",
+              "Cambridge",
+              "2026-04-01",
+              "Free",
+              0,
+              false
+            ],
+            [
+              9,
+              "Dennis Ritchie",
+              "dennis@example.com",
+              "Murray Hill",
+              "2026-04-09",
+              "Team",
+              99.9,
+              true
+            ],
+            [
+              10,
+              "Frances Allen",
+              "frances@example.com",
+              "Albany",
+              "2026-04-23",
+              "Enterprise",
+              880.4,
+              false
+            ]
+          ],
+          "decisions": [
+            {
+              "kind": "column_name",
+              "range": "tidy!E1",
+              "reason": "Header \"Signup Date\" (column E) became signup_date.",
+              "confidence": 1
+            },
+            {
+              "kind": "column_name",
+              "range": "tidy!G1",
+              "reason": "Header \"Monthly Spend\" (column G) became monthly_spend.",
+              "confidence": 1
+            },
+            {
+              "kind": "header_row",
+              "range": "tidy!A1:H1",
+              "reason": "Row 1 scored highest as the header (3.50: 100% filled, 100% labels, 100% unique, next rows 50% more numeric); the next best row (row 2) scored 2.50.",
+              "confidence": 0.95
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

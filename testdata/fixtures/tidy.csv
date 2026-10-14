@@ -1,0 +1,11 @@
+ID,Name,Email,City,Signup Date,Plan,Monthly Spend,Active
+1,Ada Lovelace,ada@example.com,London,2026-01-15,Pro,49,true
+2,Grace Hopper,grace@example.com,Arlington,2026-01-22,Team,120.75,true
+3,Alan Turing,alan@example.com,Manchester,2026-02-03,Free,0,false
+4,Katherine Johnson,katherine@example.com,Hampton,2026-02-11,Pro,19.5,true
+5,Edsger Dijkstra,edsger@example.com,Austin,2026-02-27,Team,240,false
+6,Barbara Liskov,barbara@example.com,Boston,2026-03-04,Enterprise,1250.25,true
+7,Donald Knuth,donald@example.com,Stanford,2026-03-18,Pro,49,true
+8,Margaret Hamilton,margaret@example.com,Cambridge,2026-04-01,Free,0,false
+9,Dennis Ritchie,dennis@example.com,Murray Hill,2026-04-09,Team,99.9,true
+10,Frances Allen,frances@example.com,Albany,2026-04-23,Enterprise,880.4,false
