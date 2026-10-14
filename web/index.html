@@ -5,31 +5,109 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>kempt: messy spreadsheets to clean SQL</title>
 <meta name="description" content="kempt finds the real table inside a messy spreadsheet, types every column, and explains every decision.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M8 9h16M8 16h16M8 23h16M13 6v20' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233b5bfd'/%3E%3Cpath d='M8 9h16M8 16h16M8 23h16M13 6v20' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
 </head>
 <body>
+<a class="skip" href="#intake">Skip to the demo</a>
+
 <header class="top">
-  <div class="brand">
-    <span class="logo" aria-hidden="true"></span>
-    <div>
-      <h1>kempt</h1>
-      <p class="tagline">unkempt spreadsheets in, clean typed SQL tables out</p>
-    </div>
+  <div class="top-inner">
+    <a class="brand" href="#" aria-label="kempt home">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="wordmark">kempt</span>
+      <span class="badge" id="version-badge" hidden></span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="#demo">Demo</a>
+      <a href="#about">About</a>
+      <a href="https://github.com/FavioJasso/kempt/releases" rel="noopener">Releases</a>
+      <a class="nav-gh" href="https://github.com/FavioJasso/kempt" rel="noopener">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </nav>
   </div>
-  <a class="gh" href="https://github.com/FavioJasso/kempt" rel="noopener">GitHub</a>
 </header>
 
-<main>
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot" aria-hidden="true"></span> Open source · single static binary</p>
+      <h1>Messy spreadsheets in.<br><span class="grad">Clean SQL out.</span></h1>
+      <p class="lede">kempt finds the real table inside an XLSX or CSV: past the title rows, merged headers, subtotals and footnotes. It types every column, loads Postgres, MySQL or SQLite, and explains every decision it made.</p>
+      <div class="cta">
+        <a class="btn primary lg" href="#demo">Try the demo</a>
+        <a class="btn lg" href="#about">How it works</a>
+      </div>
+      <div class="install">
+        <span class="prompt" aria-hidden="true">$</span>
+        <code id="install-cmd">go install github.com/FavioJasso/kempt/cmd/kempt@latest</code>
+        <button class="icon-btn" id="copy-install" type="button" aria-label="Copy install command">Copy</button>
+      </div>
+    </div>
+    <figure class="hero-art" aria-label="A messy spreadsheet becoming a typed SQL table">
+      <svg viewBox="0 0 440 300" role="img" aria-hidden="true">
+        <g class="art-sheet">
+          <rect x="8" y="20" width="190" height="260" rx="10" class="art-card"/>
+          <rect x="22" y="36" width="120" height="10" rx="3" class="art-title"/>
+          <rect x="22" y="52" width="70" height="7" rx="3" class="art-title"/>
+          <rect x="22" y="72" width="162" height="16" rx="3" class="art-header"/>
+          <rect x="22" y="92" width="162" height="14" rx="3" class="art-header"/>
+          <g class="art-data">
+            <rect x="22" y="112" width="162" height="12" rx="2"/>
+            <rect x="22" y="128" width="162" height="12" rx="2"/>
+            <rect x="22" y="160" width="162" height="12" rx="2"/>
+            <rect x="22" y="176" width="162" height="12" rx="2"/>
+            <rect x="22" y="208" width="162" height="12" rx="2"/>
+          </g>
+          <rect x="22" y="144" width="162" height="12" rx="2" class="art-total"/>
+          <rect x="22" y="192" width="162" height="12" rx="2" class="art-total"/>
+          <rect x="22" y="224" width="162" height="12" rx="2" class="art-total"/>
+          <rect x="22" y="248" width="110" height="7" rx="3" class="art-foot"/>
+          <rect x="22" y="260" width="80" height="7" rx="3" class="art-foot"/>
+        </g>
+        <g class="art-arrow">
+          <path d="M210 150h26" />
+          <path d="M230 142l8 8-8 8" />
+        </g>
+        <g class="art-table">
+          <rect x="250" y="60" width="182" height="180" rx="10" class="art-card"/>
+          <text x="264" y="84" class="art-code">CREATE TABLE budget (</text>
+          <text x="276" y="104" class="art-code"><tspan class="k">department</tspan> text,</text>
+          <text x="276" y="122" class="art-code"><tspan class="k">fy2025_budget</tspan> int,</text>
+          <text x="276" y="140" class="art-code"><tspan class="k">fy2025_actual</tspan> int,</text>
+          <text x="276" y="158" class="art-code"><tspan class="k">change_pct</tspan> numeric,</text>
+          <text x="276" y="176" class="art-code"><tspan class="k">notes</tspan> text</text>
+          <text x="264" y="194" class="art-code">);</text>
+          <rect x="264" y="208" width="86" height="18" rx="9" class="art-pill"/>
+          <text x="275" y="221" class="art-pill-text">26 decisions</text>
+        </g>
+      </svg>
+    </figure>
+  </div>
+</section>
+
+<main id="demo">
+  <div class="section-head">
+    <h2 class="section-title">Live demo</h2>
+    <p class="section-sub">Drop a file or pick a sample to see the original sheet, colored by what kempt detected, next to the clean table, its DDL and every decision.</p>
+  </div>
+
   <section class="intake" id="intake">
     <label class="drop" id="drop" tabindex="0">
       <input type="file" id="file" accept=".xlsx,.xlsm,.csv,.tsv,.txt" hidden>
+      <span class="drop-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
       <span class="drop-title">Drop an XLSX or CSV here</span>
       <span class="drop-sub" id="drop-sub">or click to choose a file. It is processed in memory and never stored.</span>
     </label>
     <div class="samples">
-      <span class="samples-label">Try a sample:</span>
+      <span class="samples-label">Try a sample</span>
       <div class="sample-list" id="samples"></div>
     </div>
     <details class="options">
@@ -68,7 +146,7 @@
     <div class="panes">
       <section class="pane pane-left" aria-label="Original sheet">
         <div class="pane-head">
-          <h2>Original</h2>
+          <h3>Original</h3>
           <span class="dims" id="dims"></span>
         </div>
         <ul class="legend" id="legend" aria-label="Legend"></ul>
@@ -115,8 +193,101 @@
   </section>
 </main>
 
+<section class="about" id="about" aria-labelledby="about-title">
+  <div class="about-inner">
+    <div class="section-head">
+      <p class="eyebrow">About</p>
+      <h2 class="section-title" id="about-title">Spreadsheets that aren't tables yet</h2>
+      <p class="section-sub">Business and government spreadsheets have a title in row 1, a header split across two merged rows, numbers written as <code>(1,234)</code>, a subtotal under every department and a footnote at the bottom. kempt is the step before your database: it finds the table, cleans the values, and shows its work, so you can trust the result or override the parts it got wrong.</p>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <span class="step-num">01</span>
+        <h3>Find the table</h3>
+        <p>Scores every row to pick the header, combines multi-row and merged headers, and skips titles, subtotals, grand totals and footnotes.</p>
+      </li>
+      <li class="step">
+        <span class="step-num">02</span>
+        <h3>Type every column</h3>
+        <p>Reads accounting negatives, currencies, percents, units like <code>($000s)</code>, Excel serial dates and placeholders like <code>N/A</code> or <code>—</code>, then picks the narrowest exact SQL type.</p>
+      </li>
+      <li class="step">
+        <span class="step-num">03</span>
+        <h3>Explain every decision</h3>
+        <p>Each guess is logged with the cells it touched, a reason in plain English and a confidence score. When it guesses wrong, flags like <code>--header-rows</code>, <code>--date-order</code> and <code>--keep-totals</code> override it.</p>
+      </li>
+    </ol>
+
+    <div class="bento">
+      <article class="card card-wide">
+        <h3>Three commands</h3>
+        <pre class="code term"><span class="c"># what kempt sees: tables, header, types, every decision</span>
+<span class="p">$</span> kempt inspect budget.xlsx
+<span class="c"># CREATE TABLE with column comments</span>
+<span class="p">$</span> kempt ddl budget.xlsx --dialect postgres
+<span class="c"># create the table and load the clean rows</span>
+<span class="p">$</span> kempt load budget.xlsx --dsn postgres://...
+
+<span class="p">$</span> kempt inspect budget_report.xlsx
+<span class="o">Columns (8):</span>
+  #  NAME           TYPE          UNIT
+  3  fy2025_budget  <span class="t">int</span>           $000s
+  7  change_pct     <span class="t">decimal(2,1)</span>  %
+<span class="o">Decisions (26):</span>
+  A4:H5  header_merge    <span class="t">0.90</span>
+  A8:H8  drop_total_row  <span class="t">0.97</span>
+  C11    accounting_negative  <span class="t">0.95</span></pre>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><ellipse cx="12" cy="6" rx="7" ry="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </span>
+        <h3>Postgres, MySQL, SQLite</h3>
+        <p>DDL for all three dialects. Postgres loads with <code>COPY</code>; Postgres and SQLite load in one transaction, so a failure changes nothing.</p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </span>
+        <h3>Private by design</h3>
+        <p>Uploads are processed in memory and never written to disk. Demo schemas are queryable only with your token and are dropped after an hour.</p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 17l6-6-6-6M12 19h8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <h3>CLI and web, one binary</h3>
+        <p>Pure Go with no CGO. <code>kempt serve</code> runs this page, embedded in the same static binary, for Linux, macOS and Windows.</p>
+      </article>
+      <article class="card">
+        <span class="card-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 3l2.6 5.6 6.1.6-4.6 4.1 1.3 6-5.4-3.1-5.4 3.1 1.3-6L3.3 9.2l6.1-.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </span>
+        <h3>Built for the mess</h3>
+        <p>Reads 1,500+ malformed and unusual test workbooks without a crash. Multiple tables per sheet, merged cells and mixed date formats included.</p>
+      </article>
+    </div>
+
+    <div class="compare">
+      <div>
+        <h3>Why not csvsql or DuckDB?</h3>
+        <p>They are excellent, and if your file is already a tidy table you should use them. <code>csvsql</code>, <code>sq</code> and DuckDB's <code>read_xlsx</code> load clean rectangular data quickly and well. kempt handles the sheets they would load as noise.</p>
+      </div>
+      <div class="compare-links">
+        <a class="btn primary" href="https://github.com/FavioJasso/kempt" rel="noopener">Read the docs on GitHub</a>
+        <a class="btn" href="https://github.com/FavioJasso/kempt/releases" rel="noopener">Download a binary</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 <footer class="foot">
-  Open source, MIT licensed. Uploads are processed in memory and never stored<span id="foot-retention">; loaded schemas are dropped after an hour</span>.
+  <div class="foot-inner">
+    <span class="foot-brand"><span class="logo sm" aria-hidden="true"></span> kempt <span id="foot-version"></span></span>
+    <span>Open source, MIT licensed. Uploads are processed in memory and never stored<span id="foot-retention">; loaded schemas are dropped after an hour</span>.</span>
+    <a href="https://github.com/FavioJasso/kempt" rel="noopener">GitHub</a>
+  </div>
 </footer>
 </body>
 </html>

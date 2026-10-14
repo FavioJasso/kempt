@@ -456,6 +456,17 @@ function selectTab(name) {
 
 // ---- Wiring ---------------------------------------------------------------
 
+function copyButton(btnSel, srcSel) {
+  const btn = $(btnSel);
+  btn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText($(srcSel).textContent);
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+    } catch { /* clipboard unavailable */ }
+  });
+}
+
 function wire() {
   const drop = $("#drop");
   const input = $("#file");
@@ -473,13 +484,8 @@ function wire() {
 
   for (const b of $$(".tabs [role=tab]")) b.addEventListener("click", () => selectTab(b.dataset.tab));
   for (const b of $$("#dialects button")) b.addEventListener("click", () => { state.dialect = b.dataset.dialect; renderDDL(currentTable()); });
-  $("#copy-ddl").addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText($("#ddl").textContent);
-      $("#copy-ddl").textContent = "Copied";
-      setTimeout(() => { $("#copy-ddl").textContent = "Copy"; }, 1200);
-    } catch { /* clipboard unavailable */ }
-  });
+  copyButton("#copy-ddl", "#ddl");
+  copyButton("#copy-install", "#install-cmd");
   $("#load-btn").addEventListener("click", load);
   $("#run-sql").addEventListener("click", runQuery);
   $("#sql").addEventListener("keydown", (e) => {
@@ -498,6 +504,14 @@ async function init() {
     const rows = state.config.maxRows ? `, ${state.config.maxRows.toLocaleString()} rows` : "";
     $("#drop-sub").textContent = `or click to choose a file (up to ${mb} MB${rows}). It is processed in memory and never stored.`;
     if (!state.config.loadEnabled) $("#foot-retention").hidden = true;
+    // Release builds report a semver; dev and Docker builds report a label.
+    const v = state.config.version;
+    if (v && /^v?\d+\.\d+/.test(v)) {
+      const label = v.startsWith("v") ? v : `v${v}`;
+      $("#version-badge").textContent = label;
+      $("#version-badge").hidden = false;
+      $("#foot-version").textContent = label;
+    }
   } catch { /* keep defaults */ }
   try {
     const { samples } = await api("/api/samples");
