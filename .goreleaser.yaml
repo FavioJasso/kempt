@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+project_name: kempt
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: kempt
+    main: ./cmd/kempt
+    binary: kempt
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: kempt
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Homebrew: create the tap repository (e.g. FavioJasso/homebrew-tap) first,
+# then uncomment and add a HOMEBREW_TAP_GITHUB_TOKEN secret to the release job.
+# homebrew_casks:
+#   - name: kempt
+#     repository:
+#       owner: FavioJasso
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     homepage: https://github.com/FavioJasso/kempt
+#     description: Unkempt spreadsheets in, clean typed SQL tables out
+#     license: MIT

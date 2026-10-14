@@ -143,6 +143,7 @@ func newRoot() *cobra.Command {
 	pf.Float64Var(&f.lenient, "lenient", 0, "keep a column's type if at least this fraction of values parse (failures become NULL)")
 	pf.StringVar(&f.dateOrder, "date-order", "", "order for ambiguous numeric dates: mdy or dmy (default: mdy, logged)")
 	pf.StringVar(&f.reportPath, "report", "", "write the decision report as JSON to this file")
+	pf.StringVar(&f.table, "table", "", "table name (default: the slugified sheet name, or the file name for CSV; several tables get _1, _2)")
 
 	root.AddCommand(inspectCmd(f), ddlCmd(f), loadCmd(f), serveCmd())
 	return root
@@ -217,7 +218,6 @@ func ddlCmd(f *flags) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&dialect, "dialect", "postgres", "SQL dialect: postgres, mysql, or sqlite")
-	cmd.Flags().StringVar(&f.table, "table", "", "table name (default: the slugified sheet or file name)")
 	cmd.Flags().StringVar(&schema, "schema", "", "schema/database to qualify the table with")
 	return cmd
 }
@@ -287,7 +287,6 @@ func loadCmd(f *flags) *cobra.Command {
 	}
 	fl := cmd.Flags()
 	fl.StringVar(&dsnFlag, "dsn", "", "database DSN (overrides $KEMPT_DSN, $DATABASE_PUBLIC_URL, $DATABASE_URL)")
-	fl.StringVar(&f.table, "table", "", "table name (default: the slugified sheet or file name)")
 	fl.StringVar(&ifExists, "if-exists", "fail", "when the table exists: fail, replace, or append")
 	fl.BoolVar(&dryRun, "dry-run", false, "print the DDL, the first 10 rows, and the report without touching the database")
 	fl.StringVar(&schema, "schema", "", "schema (Postgres) or database (MySQL) to load into")
