@@ -47,10 +47,7 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test -race ./...
-      - name: fixtures are reproducible
-        run: |
-          go run ./testdata/gen -out "$RUNNER_TEMP/fixtures"
-          for f in testdata/fixtures/*; do cmp "$f" "$RUNNER_TEMP/fixtures/$(basename "$f")"; done
+      - run: go test ./testdata/gen   # ./... skips testdata; this rebuilds every fixture byte for byte
       - name: cross-compile without CGO
         run: |
           for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
