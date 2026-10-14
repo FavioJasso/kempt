@@ -39,7 +39,7 @@ func XLSX(r io.Reader, opts Options) ([]*grid.Grid, error) {
 	if p, err := f.GetWorkbookProps(); err == nil && p.Date1904 != nil {
 		date1904 = *p.Date1904
 	}
-	x := &xlsxReader{f: f, maxRows: opts.MaxRows, dateStyles: map[int]bool{}}
+	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, dateStyles: map[int]bool{}}
 	grids := make([]*grid.Grid, 0, len(names))
 	for _, name := range names {
 		g, err := x.sheet(name)
@@ -100,12 +100,21 @@ func noVisibleSheets(f *excelize.File) error {
 type xlsxReader struct {
 	f          *excelize.File
 	maxRows    int
+	maxCells   int64
 	dateStyles map[int]bool // style id → number format is a date/time
 }
 
-type placedCell struct {
-	r, c int
-	cell grid.Cell
+// rawRow is one row as excelize reads it: its width (gaps padded with "")
+// and its non-empty values in column order. Rows are kept sparse so a stray
+// value in column XFD costs one entry, not 16,384.
+type rawRow struct {
+	width int
+	vals  []rawVal
+}
+
+type rawVal struct {
+	c int
+	v string
 }
 
 func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
@@ -113,18 +122,49 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// The grid ends at the last visible value or merge extent. Check its
+	// density on the raw values first: loading the merges makes excelize
+	// expand the whole worksheet in memory.
+	maxR, maxC, stored := bounds(rows, nil)
+	if err := checkDensity(name, maxR+1, maxC+1, stored); err != nil {
+		return nil, err
+	}
+	if err := checkCells(name, maxR+1, maxC+1, x.maxCells); err != nil {
+		return nil, err
+	}
 	merges, err := x.merges(name)
 	if err != nil {
 		return nil, err
 	}
+	maxR, maxC, stored = bounds(rows, merges)
+	for _, m := range merges {
+		maxR, maxC = max(maxR, m.R2), max(maxC, m.C2)
+	}
+	if x.maxRows > 0 && maxR+1 > x.maxRows {
+		return nil, tooManyRows(name, x.maxRows)
+	}
+	if err := checkDensity(name, maxR+1, maxC+1, stored); err != nil {
+		return nil, err
+	}
+	if err := checkCells(name, maxR+1, maxC+1, x.maxCells); err != nil {
+		return nil, err
+	}
 
-	var cells []placedCell
-	maxR, maxC := -1, -1
+	g := grid.New(name, maxR+1, maxC+1)
+	g.Source = "xlsx"
 	var active []grid.Range // merges overlapping the current row
 	next := 0
-	for r, row := range rows {
+	for r := 0; r <= maxR && r < len(rows); r++ {
+		row := rows[r]
 		active = activeMerges(active, merges, &next, r)
-		for c, raw := range row {
+		vi := 0
+		for c := 0; c < min(row.width, maxC+1); c++ {
+			raw := ""
+			if vi < len(row.vals) && row.vals[vi].c == c {
+				raw = row.vals[vi].v
+				vi++
+			}
 			if coveredByMerge(active, r, c) {
 				continue // Excel only shows the anchor's value
 			}
@@ -132,27 +172,9 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 			if err != nil {
 				return nil, err
 			}
-			if cell.Kind == grid.Empty {
-				continue
+			if cell.Kind != grid.Empty {
+				g.Cells[r][c] = cell
 			}
-			cells = append(cells, placedCell{r, c, cell})
-			if !cell.IsEmpty() {
-				maxR, maxC = max(maxR, r), max(maxC, c)
-			}
-		}
-	}
-	for _, m := range merges {
-		maxR, maxC = max(maxR, m.R2), max(maxC, m.C2)
-	}
-	if x.maxRows > 0 && maxR+1 > x.maxRows {
-		return nil, tooManyRows(name, x.maxRows)
-	}
-
-	g := grid.New(name, maxR+1, maxC+1)
-	g.Source = "xlsx"
-	for _, p := range cells {
-		if p.r <= maxR && p.c <= maxC {
-			g.Cells[p.r][p.c] = p.cell
 		}
 	}
 	for _, m := range merges {
@@ -161,15 +183,34 @@ func (x *xlsxReader) sheet(name string) (*grid.Grid, error) {
 	return g, nil
 }
 
+// bounds returns the last row and column holding a visible value (not blank
+// and not hidden under one of merges) and the number of such values. Exactly
+// these raw values become non-empty cells.
+func bounds(rows []rawRow, merges []grid.Range) (maxR, maxC, values int) {
+	maxR, maxC = -1, -1
+	var active []grid.Range
+	next := 0
+	for r, row := range rows {
+		active = activeMerges(active, merges, &next, r)
+		for _, v := range row.vals {
+			if strings.TrimSpace(v.v) != "" && !coveredByMerge(active, r, v.c) {
+				maxR, maxC = max(maxR, r), max(maxC, v.c)
+				values++
+			}
+		}
+	}
+	return maxR, maxC, values
+}
+
 // rawRows returns raw cell values (what GetRows returns with RawCellValue),
 // stopping early once the sheet exceeds maxRows.
-func (x *xlsxReader) rawRows(sheet string) ([][]string, error) {
+func (x *xlsxReader) rawRows(sheet string) ([]rawRow, error) {
 	it, err := x.f.Rows(sheet)
 	if err != nil {
 		return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
 	}
 	defer it.Close()
-	var out [][]string
+	var out []rawRow
 	for n := 1; it.Next(); n++ {
 		row, err := it.Columns(excelize.Options{RawCellValue: true})
 		if err != nil {
@@ -181,10 +222,16 @@ func (x *xlsxReader) rawRows(sheet string) ([][]string, error) {
 		if x.maxRows > 0 && n > x.maxRows && hasValue(row) {
 			return nil, tooManyRows(sheet, x.maxRows)
 		}
-		for len(out) < n-1 {
-			out = append(out, nil)
+		rr := rawRow{width: len(row)}
+		for c, v := range row {
+			if v != "" {
+				rr.vals = append(rr.vals, rawVal{c, v})
+			}
 		}
-		out = append(out, row)
+		for len(out) < n-1 {
+			out = append(out, rawRow{})
+		}
+		out = append(out, rr)
 	}
 	if err := it.Error(); err != nil {
 		return nil, fmt.Errorf("read: sheet %q: %w", sheet, err)
@@ -302,9 +349,15 @@ func (x *xlsxReader) cell(sheet string, r, c int, raw string) (grid.Cell, error)
 	case excelize.CellTypeFormula: // t="str": a string formula result
 		cell = grid.Cell{Kind: grid.String, Raw: raw}
 		if formula != "" && plainNumber.MatchString(raw) {
-			// Some writers (excelize included) store numeric results as text.
-			if cell, err = x.number(sheet, ref, raw); err != nil {
+			// Some writers (excelize included) store numeric results as
+			// text. Only text a float reproduces exactly becomes a number:
+			// "4111111111111111" (16 digits) and "-0" stay text.
+			n, err := x.number(sheet, ref, raw)
+			if err != nil {
 				return grid.Cell{}, err
+			}
+			if n.Raw == raw {
+				cell = n
 			}
 		}
 	default: // "n" or no type

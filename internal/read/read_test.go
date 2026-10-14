@@ -98,3 +98,47 @@ func TestFile(t *testing.T) {
 		t.Errorf("missing file err = %v", err)
 	}
 }
+
+func TestCheckDensity(t *testing.T) {
+	tests := []struct {
+		rows, cols, stored int
+		wantErr            bool
+	}{
+		{0, 0, 0, false},
+		{1, 1, 1, false},
+		{2048, 2048, 2, false},                 // exactly sparseFloor cells
+		{2048, 2049, 1, true},                  // one column past the floor, nearly empty
+		{4096, 2048, 4096 * 2048 / 16, false},  // one cell in 16 stored
+		{4096, 2048, 4096*2048/16 - 1, true},   // just under one in 16
+		{1048576, 16384, 1048576, true},        // A1:XFD1048576 with a column of values
+		{1048576, 20, 1048576 * 20 / 4, false}, // a big, reasonably dense CSV
+		{50001, 100001, 150002, true},          // one wide row plus many short ones
+		{1 << 30, 1 << 30, 1 << 20, true},      // no overflow on absurd sizes
+	}
+	for _, tt := range tests {
+		err := checkDensity("s", tt.rows, tt.cols, tt.stored)
+		if (err != nil) != tt.wantErr || (err != nil && !errors.Is(err, ErrTooSparse)) {
+			t.Errorf("checkDensity(%d, %d, %d) = %v, want error %v", tt.rows, tt.cols, tt.stored, err, tt.wantErr)
+		}
+	}
+}
+
+func TestMaxCells(t *testing.T) {
+	data := []byte("a,b,c\n1,2,3\n4,5,6\n")
+	if _, err := Bytes("x.csv", data, Options{MaxCells: 9}); err != nil {
+		t.Fatalf("3x3 within a 9-cell limit: %v", err)
+	}
+	if _, err := Bytes("x.csv", data, Options{MaxCells: 8}); !errors.Is(err, ErrTooManyCells) {
+		t.Fatalf("3x3 over an 8-cell limit: %v", err)
+	}
+	f := excelize.NewFile()
+	f.SetCellValue("Sheet1", "A1", "x")
+	f.SetCellValue("Sheet1", "D4", "y")
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Bytes("x.xlsx", buf.Bytes(), Options{MaxCells: 15}); !errors.Is(err, ErrTooManyCells) {
+		t.Fatalf("4x4 xlsx over a 15-cell limit: %v", err)
+	}
+}

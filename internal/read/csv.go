@@ -30,15 +30,16 @@ var delimiters = []rune{',', ';', '\t', '|'}
 const sniffRecords = 50
 
 // CSV reads delimited text into a single grid named after the file stem.
-// It decodes UTF-8 (BOM optional), UTF-16 with a BOM, or Windows-1252; honors
+// It decodes UTF-8 (BOM optional) or UTF-16 with a BOM, reading any byte that
+// is not valid UTF-8 as Windows-1252; honors
 // an Excel "sep=X" first line; uses tabs for .tsv/.tab files and otherwise
 // sniffs the delimiter. Every non-empty field becomes a String cell holding
 // the field exactly as read; blank lines are kept as empty rows.
 func CSV(name string, data []byte) (*grid.Grid, error) {
-	return readCSV(name, data, 0)
+	return readCSV(name, data, 0, 0)
 }
 
-func readCSV(name string, data []byte, maxRows int) (*grid.Grid, error) {
+func readCSV(name string, data []byte, maxRows int, maxCells int64) (*grid.Grid, error) {
 	text := decodeText(data)
 	if !strings.Contains(text, "\n") && strings.Contains(text, "\r") {
 		text = strings.ReplaceAll(text, "\r", "\n") // classic Mac line endings
@@ -67,13 +68,22 @@ func readCSV(name string, data []byte, maxRows int) (*grid.Grid, error) {
 		return nil, fmt.Errorf("read: %s: %w", filepath.Base(name), err)
 	}
 
-	rows, cols := 0, 0
+	rows, cols, fields := 0, 0, 0
 	for r, rec := range recs {
 		for c, f := range rec {
 			if strings.TrimSpace(f) != "" {
 				rows, cols = r+1, max(cols, c+1)
 			}
 		}
+	}
+	for _, rec := range recs[:rows] {
+		fields += len(rec)
+	}
+	if err := checkDensity(stem, rows, cols, fields); err != nil {
+		return nil, err
+	}
+	if err := checkCells(stem, rows, cols, maxCells); err != nil {
+		return nil, err
 	}
 	g := grid.New(stem, rows, cols)
 	g.Source, g.Delimiter = "csv", delim
@@ -99,10 +109,20 @@ func decodeText(data []byte) string {
 	if utf8.Valid(data) {
 		return string(data)
 	}
-	if out, err := charmap.Windows1252.NewDecoder().Bytes(data); err == nil {
-		return string(out)
+	// Decode each byte that is not part of a valid UTF-8 sequence as
+	// Windows-1252. A pure 1252 file decodes as 1252, and a UTF-8 file with a
+	// few stray 1252 bytes keeps its UTF-8 text instead of turning to mojibake.
+	var b strings.Builder
+	b.Grow(len(data) + len(data)/8)
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		if r == utf8.RuneError && size == 1 {
+			r = charmap.Windows1252.DecodeByte(data[0])
+		}
+		b.WriteRune(r)
+		data = data[size:]
 	}
-	return strings.ToValidUTF8(string(data), "�")
+	return b.String()
 }
 
 func decodeUTF16(b []byte, order binary.ByteOrder) string {

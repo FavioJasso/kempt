@@ -192,6 +192,8 @@ func TestInspectErrors(t *testing.T) {
 		{"missing sample", map[string]string{"sample": "nope.xlsx"}, "", "", 404},
 		{"legacy xls", map[string]string{"file": "\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1rest"}, "old.xls", "", 400},
 		{"too large", map[string]string{"file": strings.Repeat("a,b\n", demoMaxUpload/4+10)}, "big.csv", "", 413},
+		{"too sparse", map[string]string{"file": "a\n" + strings.Repeat("\n", 3000) + strings.Repeat(",", 2000) + "z\n"}, "sparse.csv", "", 400},
+		{"too many cells", map[string]string{"file": strings.Repeat(strings.Repeat("1,", 999)+"1\n", 2100)}, "wide.csv", "", 413},
 		{"not multipart", nil, "", "application/json", 400},
 	}
 	for _, c := range cases {

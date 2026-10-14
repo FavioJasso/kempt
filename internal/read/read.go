@@ -17,6 +17,9 @@ import (
 type Options struct {
 	Sheet   string // "" = every visible worksheet (xlsx); a named sheet may be hidden. Ignored for CSV.
 	MaxRows int    // 0 = unlimited; otherwise ErrTooManyRows when a sheet has more rows
+	// MaxCells caps rows x columns of each grid (0 = unlimited); larger
+	// sheets fail with ErrTooManyCells before the grid is allocated.
+	MaxCells int64
 }
 
 var (
@@ -27,6 +30,19 @@ var (
 	ErrUnsupported = errors.New("read: unsupported file format")
 	// ErrSheetNotFound is returned when Options.Sheet names no sheet in the workbook.
 	ErrSheetNotFound = errors.New("read: sheet not found")
+	// ErrTooSparse is returned when a sheet's few values lie so far apart
+	// that its grid would be almost entirely empty cells.
+	ErrTooSparse = errors.New("read: sheet is mostly empty")
+	// ErrTooManyCells is returned when a sheet spans more cells than Options.MaxCells.
+	ErrTooManyCells = errors.New("read: sheet is too large")
+)
+
+// Grids are dense, so a sheet holding A1 and XFD50000 alone would need
+// hundreds of millions of cells. A grid may always span sparseFloor cells;
+// beyond that, at least one cell in sparseRatio must be stored in the file.
+const (
+	sparseFloor = 1 << 22
+	sparseRatio = 16
 )
 
 var (
@@ -67,7 +83,7 @@ func Bytes(name string, data []byte, opts Options) ([]*grid.Grid, error) {
 	case looksLikeMarkup(data):
 		return nil, fmt.Errorf("%w: %s looks like an HTML or XML export; open it in Excel and save it as .xlsx or .csv", ErrUnsupported, base)
 	case looksLikeText(data):
-		g, err := readCSV(name, data, opts.MaxRows)
+		g, err := readCSV(name, data, opts.MaxRows, opts.MaxCells)
 		if err != nil {
 			return nil, err
 		}
@@ -108,4 +124,24 @@ func looksLikeMarkup(data []byte) bool {
 
 func tooManyRows(sheet string, limit int) error {
 	return fmt.Errorf("%w: sheet %q has more than %d rows", ErrTooManyRows, sheet, limit)
+}
+
+// checkCells enforces Options.MaxCells.
+func checkCells(sheet string, rows, cols int, maxCells int64) error {
+	if cells := int64(rows) * int64(cols); maxCells > 0 && cells > maxCells {
+		return fmt.Errorf("%w: sheet %q spans %d rows x %d columns (%d cells; the limit is %d)",
+			ErrTooManyCells, sheet, rows, cols, cells, maxCells)
+	}
+	return nil
+}
+
+// checkDensity rejects a rows x cols grid that would hold far more cells than
+// the stored values (fields, for CSV) it was read from.
+func checkDensity(sheet string, rows, cols, stored int) error {
+	cells := int64(rows) * int64(cols)
+	if cells <= sparseFloor || cells <= sparseRatio*int64(stored) {
+		return nil
+	}
+	return fmt.Errorf("%w: sheet %q spans %d rows x %d columns but stores only %d values; delete the stray cells far from the data",
+		ErrTooSparse, sheet, rows, cols, stored)
 }

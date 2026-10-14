@@ -186,13 +186,15 @@ func checkZip(data []byte, maxUpload int64) error {
 
 // analyze reads and plans an upload.
 func (s *Server) analyze(up *upload) ([]*plan.Sheet, error) {
-	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows})
+	grids, err := read.Bytes(up.name, up.data, read.Options{Sheet: up.sheet, MaxRows: s.maxRows, MaxCells: s.maxCells})
 	if err != nil {
 		switch {
 		case errors.Is(err, read.ErrTooManyRows):
 			return nil, &httpError{http.StatusRequestEntityTooLarge, fmt.Sprintf("the sheet has more than %d rows", s.maxRows)}
-		case errors.Is(err, read.ErrUnsupported), errors.Is(err, read.ErrSheetNotFound):
-			return nil, badRequest("%v", err)
+		case errors.Is(err, read.ErrTooManyCells):
+			return nil, &httpError{http.StatusRequestEntityTooLarge, fmt.Sprintf("the sheet spans more than %d cells", s.maxCells)}
+		case errors.Is(err, read.ErrUnsupported), errors.Is(err, read.ErrSheetNotFound), errors.Is(err, read.ErrTooSparse):
+			return nil, badRequest("%s", strings.TrimPrefix(err.Error(), "read: "))
 		}
 		return nil, badRequest("could not read %s: %v", up.name, err)
 	}

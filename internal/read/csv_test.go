@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"unicode/utf16"
 
@@ -200,6 +201,65 @@ func TestCSVMaxRows(t *testing.T) {
 		gs, err := Bytes("x.csv", data, Options{MaxRows: tt.max})
 		if errors.Is(err, ErrTooManyRows) != tt.wantErr || (!tt.wantErr && (err != nil || gs[0].Rows != 4)) {
 			t.Errorf("MaxRows %d: err = %v", tt.max, err)
+		}
+	}
+}
+
+func TestCSVMixedEncoding(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want [][]string
+	}{
+		{"utf-8 with one stray 1252 byte", "name,city\ncafé,Zürich\nbad\xe9,x\n",
+			[][]string{{"name", "city"}, {"café", "Zürich"}, {"badé", "x"}}},
+		{"1252 smart quotes beside utf-8", "q\n\x93hi\x94 – “ok”\n",
+			[][]string{{"q"}, {"“hi” – “ok”"}}},
+		{"truncated utf-8 sequence", "a\n\xe2\x82\n",
+			[][]string{{"a"}, {"â‚"}}},
+		{"pure 1252", "n\nna\xefve \x80 5\n", [][]string{{"n"}, {"naïve € 5"}}},
+	}
+	for _, tt := range tests {
+		g, err := CSV("x.csv", []byte(tt.data))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.name, err)
+		}
+		if got := raws(t, g); fmt.Sprintf("%q", got) != fmt.Sprintf("%q", tt.want) {
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestCSVTooSparse(t *testing.T) {
+	wide := "a" + strings.Repeat(",", 5000) + "x\n"
+	tests := []struct {
+		name       string
+		data       string
+		opts       Options
+		wantErr    error
+		rows, cols int
+	}{
+		{"wide row then blank lines", wide + strings.Repeat("\n", 1000) + "y\n", Options{}, ErrTooSparse, 0, 0},
+		{"wide row then short rows", wide + strings.Repeat("y\n", 1000), Options{MaxRows: 50000}, ErrTooSparse, 0, 0},
+		{"MaxRows is checked first", wide + strings.Repeat("y\n", 1000), Options{MaxRows: 500}, ErrTooManyRows, 0, 0},
+		{"wide row under the floor", wide + strings.Repeat("\n", 100) + "y\n", Options{}, nil, 102, 5001},
+		{"delimited empty fields count as stored", wide + strings.Repeat("y"+strings.Repeat(",", 5000)+"\n", 900), Options{}, nil, 901, 5001},
+		{"padded empty fields count as stored", strings.Repeat(strings.Repeat(",", 5000)+"z\n", 900), Options{}, nil, 900, 5001},
+	}
+	for _, tt := range tests {
+		gs, err := Bytes("x.csv", []byte(tt.data), tt.opts)
+		if tt.wantErr != nil {
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("%s: err = %v, want %v", tt.name, err, tt.wantErr)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", tt.name, err)
+			continue
+		}
+		if g := gs[0]; g.Rows != tt.rows || g.Cols != tt.cols {
+			t.Errorf("%s: size = %dx%d, want %dx%d", tt.name, g.Rows, g.Cols, tt.rows, tt.cols)
 		}
 	}
 }

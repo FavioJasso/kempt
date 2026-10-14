@@ -583,3 +583,119 @@ func TestXLSXStyleCache(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestXLSXStringFormulaResults(t *testing.T) {
+	tests := []struct {
+		raw string
+		num *float64 // nil = stays text
+	}{
+		{"3", ptr(3.0)},
+		{"0.1", ptr(0.1)},
+		{"-12.5", ptr(-12.5)},
+		{"123456789012345", ptr(123456789012345.0)},
+		{"4111111111111111", nil}, // 16 digits: a float would round it
+		{"12345678901234567890", nil},
+		{"0.1234567890123456", nil},
+		{"-0", nil},
+		{"1.50", nil},
+		{"00123", nil},
+		{"1E3", nil},
+		{"abc", nil},
+	}
+	refs := make([]string, len(tests))
+	data := newBook(t, func(f *excelize.File) {
+		for i := range tests {
+			refs[i] = fmt.Sprintf("A%d", i+1)
+			must(t, f.SetCellValue("Sheet1", refs[i], "x"))
+		}
+	})
+	cells := map[string]string{}
+	for i, tt := range tests {
+		cells[refs[i]] = fmt.Sprintf(`<c r="%s" t="str"><f>B1&amp;""</f><v>%s</v></c>`, refs[i], tt.raw)
+	}
+	g := readXLSX(t, replaceCells(t, data, cells), Options{})[0]
+	for i, tt := range tests {
+		c := cellAt(t, g, refs[i])
+		if c.Kind != grid.Formula || c.Raw != tt.raw || c.Formula != `B1&""` {
+			t.Errorf("%q: got {%v %q formula=%q}", tt.raw, c.Kind, c.Raw, c.Formula)
+		}
+		switch {
+		case tt.num == nil && c.Num != nil:
+			t.Errorf("%q: Num = %v, want nil (text kept)", tt.raw, *c.Num)
+		case tt.num != nil && (c.Num == nil || *c.Num != *tt.num):
+			t.Errorf("%q: Num = %v, want %v", tt.raw, c.Num, *tt.num)
+		}
+	}
+}
+
+// sheetData replaces the rows of sheet1.xml, for sheets too sparse to build
+// quickly through excelize.
+func sheetData(t *testing.T, rows string) []byte {
+	t.Helper()
+	data := newBook(t, func(f *excelize.File) { must(t, f.SetCellValue("Sheet1", "A1", "x")) })
+	return patchPart(t, data, "xl/worksheets/sheet1.xml", func(s string) string {
+		return regexp.MustCompile(`<sheetData>.*</sheetData>`).ReplaceAllLiteralString(s, "<sheetData>"+rows+"</sheetData>")
+	})
+}
+
+func TestXLSXTooSparse(t *testing.T) {
+	var farRows strings.Builder
+	for r := 1; r <= 300; r++ {
+		fmt.Fprintf(&farRows, `<row r="%d"><c r="A%d"><v>%d</v></c><c r="XFD%d"><v>1</v></c></row>`, r, r, r, r)
+	}
+	tests := []struct {
+		name       string
+		data       []byte
+		opts       Options
+		wantErr    error
+		rows, cols int
+	}{
+		{
+			name:    "far corner value",
+			data:    sheetData(t, `<row r="1"><c r="A1"><v>1</v></c></row><row r="300"><c r="XFD300"><v>2</v></c></row>`),
+			wantErr: ErrTooSparse,
+		},
+		{
+			name:    "far value in every row",
+			data:    sheetData(t, farRows.String()),
+			opts:    Options{MaxRows: 50000},
+			wantErr: ErrTooSparse,
+		},
+		{
+			name: "far merge with no values",
+			data: newBook(t, func(f *excelize.File) {
+				must(t, f.SetCellValue("Sheet1", "A1", "x"))
+				must(t, f.MergeCell("Sheet1", "XFC299", "XFD300"))
+			}),
+			wantErr: ErrTooSparse,
+		},
+		{
+			name:    "MaxRows is checked first",
+			data:    sheetData(t, `<row r="1"><c r="A1"><v>1</v></c></row><row r="300"><c r="XFD300"><v>2</v></c></row>`),
+			opts:    Options{MaxRows: 100},
+			wantErr: ErrTooManyRows,
+		},
+		{
+			name: "sparse but small enough",
+			data: sheetData(t, `<row r="1"><c r="A1"><v>1</v></c></row><row r="2000"><c r="ZZ2000"><v>2</v></c></row>`),
+			rows: 2000, cols: 702,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gs, err := Bytes("book.xlsx", tt.data, tt.opts)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g := gs[0]; g.Rows != tt.rows || g.Cols != tt.cols {
+				t.Errorf("size = %dx%d, want %dx%d", g.Rows, g.Cols, tt.rows, tt.cols)
+			}
+		})
+	}
+}

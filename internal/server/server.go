@@ -22,11 +22,13 @@ import (
 const (
 	demoMaxUpload = 5 << 20
 	demoMaxRows   = 50_000
-	demoRate      = 10 // requests per minute per IP
+	demoMaxCells  = 2_000_000 // rows x columns, checked before the grid is allocated
+	demoRate      = 10        // requests per minute per IP
 	schemaTTL     = time.Hour
 	janitorEvery  = 10 * time.Minute
 
 	defaultMaxUpload = 64 << 20
+	defaultMaxCells  = 20_000_000
 
 	gridRows    = 200 // rows of the original grid returned by /api/inspect
 	gridCols    = 30
@@ -56,13 +58,14 @@ type Server struct {
 	limiter   *limiter
 	maxUpload int64
 	maxRows   int
+	maxCells  int64
 	handler   http.Handler
 }
 
 // New builds a server. When cfg.DSN is a Postgres DSN it opens a connection
 // pool lazily (connections are made on first use).
 func New(cfg Config) (*Server, error) {
-	s := &Server{cfg: cfg, log: cfg.Logger, maxUpload: defaultMaxUpload}
+	s := &Server{cfg: cfg, log: cfg.Logger, maxUpload: defaultMaxUpload, maxCells: defaultMaxCells}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -73,7 +76,7 @@ func New(cfg Config) (*Server, error) {
 		}
 	}
 	if cfg.Demo {
-		s.maxUpload, s.maxRows = demoMaxUpload, demoMaxRows
+		s.maxUpload, s.maxRows, s.maxCells = demoMaxUpload, demoMaxRows, demoMaxCells
 		s.limiter = newLimiter(demoRate, time.Minute)
 	}
 	if cfg.DSN != nil {
