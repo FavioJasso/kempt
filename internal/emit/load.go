@@ -2,7 +2,9 @@ package emit
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,15 +51,21 @@ type LoadResult struct {
 
 // Load creates and fills one table per plan. connString is a Postgres URL or
 // keyword/value string, a go-sql-driver MySQL DSN, or a SQLite path.
+// Every plan is validated first, and two plans may not name the same table.
 // Postgres and SQLite load every plan in one transaction, so an error leaves
 // the database unchanged. MySQL commits DDL implicitly, so it loads plan by
-// plan; on error the results list the tables already loaded.
+// plan (checking every table up front when if-exists is fail); on error the
+// results list the tables already loaded.
 func Load(ctx context.Context, dialect, connString string, plans []*plan.Plan, opts LoadOptions) ([]LoadResult, error) {
 	d, ok := dialectOf(dialect)
 	if !ok {
 		return nil, fmt.Errorf("emit: unsupported dialect %q (want postgres, mysql, or sqlite)", dialect)
 	}
-	if _, err := ifExistsMode(opts.IfExists); err != nil {
+	mode, err := ifExistsMode(opts.IfExists)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkPlans(d, plans, opts.Schema); err != nil {
 		return nil, err
 	}
 	results := make([]LoadResult, 0, len(plans))
@@ -110,6 +118,18 @@ func Load(ctx context.Context, dialect, connString string, plans []*plan.Plan, o
 			return nil, err
 		}
 		defer db.Close()
+		if mode == IfExistsFail {
+			// Check every table first, so a conflict changes nothing.
+			for _, p := range plans {
+				exists, err := mysqlTableExists(ctx, db, opts.Schema, p.Table)
+				if err != nil {
+					return nil, err
+				}
+				if exists {
+					return nil, existsError(opts.Schema, p.Table)
+				}
+			}
+		}
 		for _, p := range plans {
 			n, err := loadMySQL(ctx, db, p, opts)
 			if err != nil {
@@ -137,9 +157,10 @@ func LoadPostgres(ctx context.Context, conn *pgx.Conn, p *plan.Plan, opts LoadOp
 }
 
 // LoadSQL creates and fills p's table in a MySQL or SQLite database with
-// batched multi-row INSERTs. SQLite runs in one transaction; MySQL runs the
-// DDL first (it commits implicitly) and the inserts in a transaction, and
-// drops a table it created if the inserts fail.
+// batched multi-row INSERTs. SQLite runs in one transaction. MySQL commits
+// DDL implicitly, so it runs the inserts in a transaction, drops a table it
+// created if they fail, and replaces a table by loading a new one and
+// swapping it in with one RENAME TABLE.
 func LoadSQL(ctx context.Context, db *sql.DB, dialect string, p *plan.Plan, opts LoadOptions) (int64, error) {
 	d, _ := dialectOf(dialect)
 	switch d {
@@ -260,40 +281,119 @@ func loadSQLite(ctx context.Context, tx *sql.Tx, p *plan.Plan, opts LoadOptions)
 	return insertRows(ctx, tx, d, p, opts)
 }
 
-func loadMySQL(ctx context.Context, db *sql.DB, p *plan.Plan, opts LoadOptions) (n int64, err error) {
+func loadMySQL(ctx context.Context, db *sql.DB, p *plan.Plan, opts LoadOptions) (int64, error) {
 	if err := checkPlan(p); err != nil {
 		return 0, err
 	}
-	d := infer.MySQL
-	var count int
-	q := "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ?"
-	if err := db.QueryRowContext(ctx, q, opts.Schema, p.Table).Scan(&count); err != nil {
-		return 0, fmt.Errorf("emit: check table %s: %w", resultName(opts.Schema, p.Table), err)
-	}
-	exists := count > 0
-	if err := prepareTable(ctx, d, exists, p, opts, func(q string) error {
-		_, err := db.ExecContext(ctx, q)
-		return err
-	}); err != nil {
+	mode, err := ifExistsMode(opts.IfExists)
+	if err != nil {
 		return 0, err
 	}
-	if mode, _ := ifExistsMode(opts.IfExists); !exists || mode == IfExistsReplace {
-		// The table is ours: do not leave it behind empty if the inserts fail.
-		defer func() {
-			if err != nil {
-				_, _ = db.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS "+QualifiedTable(d, opts.Schema, p.Table))
-			}
-		}()
+	// One connection, so session settings reach the CREATE TABLE.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return 0, err
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	defer conn.Close()
+	exists, err := mysqlTableExists(ctx, conn, opts.Schema, p.Table)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case exists && mode == IfExistsFail:
+		return 0, existsError(opts.Schema, p.Table)
+	case exists && mode == IfExistsAppend:
+		return mysqlInsert(ctx, conn, p, opts)
+	case exists && mode == IfExistsReplace:
+		return mysqlReplace(ctx, conn, p, opts)
+	}
+	if err := mysqlCreate(ctx, conn, p, opts); err != nil {
+		return 0, err
+	}
+	n, err := mysqlInsert(ctx, conn, p, opts)
+	if err != nil {
+		// The table is ours: do not leave it behind empty.
+		mysqlDrop(ctx, conn, opts.Schema, p.Table)
+		return 0, err
+	}
+	return n, nil
+}
+
+// mysqlReplace loads p into a new table and swaps it for the existing one
+// with a single RENAME TABLE, so a failed load leaves the old table intact.
+func mysqlReplace(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOptions) (int64, error) {
+	var suffix [4]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return 0, err
+	}
+	staged, old := *p, "kempt_old_"+hex.EncodeToString(suffix[:])
+	staged.Table = "kempt_new_" + hex.EncodeToString(suffix[:])
+	name := resultName(opts.Schema, p.Table)
+	if err := mysqlCreate(ctx, conn, &staged, opts); err != nil {
+		return 0, fmt.Errorf("emit: replace %s: %w", name, err)
+	}
+	n, err := mysqlInsert(ctx, conn, &staged, opts)
+	if err != nil {
+		mysqlDrop(ctx, conn, opts.Schema, staged.Table)
+		return 0, fmt.Errorf("emit: replace %s: %w", name, err)
+	}
+	qt := func(t string) string { return QualifiedTable(infer.MySQL, opts.Schema, t) }
+	if _, err := conn.ExecContext(ctx, "RENAME TABLE "+qt(p.Table)+" TO "+qt(old)+", "+qt(staged.Table)+" TO "+qt(p.Table)); err != nil {
+		mysqlDrop(ctx, conn, opts.Schema, staged.Table)
+		return 0, fmt.Errorf("emit: replace %s: %w", name, err)
+	}
+	if _, err := conn.ExecContext(ctx, "DROP TABLE "+qt(old)); err != nil {
+		return n, fmt.Errorf("emit: replaced %s but could not drop the previous table %s: %w", name, resultName(opts.Schema, old), err)
+	}
+	return n, nil
+}
+
+// mysqlCreate runs p's DDL. When the table's worst-case row is too big for
+// innodb_strict_mode, it turns strict mode off for this statement only;
+// rows that really do not fit still fail on insert.
+func mysqlCreate(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOptions) error {
+	types := columnTypes(p, infer.MySQL)
+	fitMySQLRow(types)
+	if innodbRecordSize(types) >= innodbRecordLimit {
+		if _, err := conn.ExecContext(ctx, "SET SESSION innodb_strict_mode = OFF"); err == nil {
+			defer conn.ExecContext(context.WithoutCancel(ctx), "SET SESSION innodb_strict_mode = DEFAULT")
+		}
+	}
+	if _, err := conn.ExecContext(ctx, DDL(p, infer.MySQL, DDLOptions{Schema: opts.Schema})); err != nil {
+		return fmt.Errorf("emit: create %s: %w", resultName(opts.Schema, p.Table), err)
+	}
+	return nil
+}
+
+// mysqlInsert inserts p's rows in one transaction.
+func mysqlInsert(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOptions) (int64, error) {
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	if n, err = insertRows(ctx, tx, d, p, opts); err != nil {
+	n, err := insertRows(ctx, tx, infer.MySQL, p, opts)
+	if err != nil {
 		return 0, err
 	}
 	return n, tx.Commit()
+}
+
+func mysqlDrop(ctx context.Context, conn *sql.Conn, schema, table string) {
+	_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS "+QualifiedTable(infer.MySQL, schema, table))
+}
+
+// mysqlTableExists reports whether schema.table (or table in the current
+// database) exists.
+func mysqlTableExists(ctx context.Context, db interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}, schema, table string) (bool, error) {
+	var count int
+	q := "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = COALESCE(NULLIF(?, ''), DATABASE()) AND table_name = ?"
+	if err := db.QueryRowContext(ctx, q, schema, table).Scan(&count); err != nil {
+		return false, fmt.Errorf("emit: check table %s: %w", resultName(schema, table), err)
+	}
+	return count > 0, nil
 }
 
 // prepareTable applies the if-exists mode: it fails, drops, or keeps an
@@ -307,7 +407,7 @@ func prepareTable(ctx context.Context, d string, exists bool, p *plan.Plan, opts
 	if exists {
 		switch mode {
 		case IfExistsFail:
-			return fmt.Errorf("emit: %w: %s (use if-exists replace or append)", ErrTableExists, name)
+			return existsError(opts.Schema, p.Table)
 		case IfExistsAppend:
 			return nil
 		case IfExistsReplace:
@@ -406,6 +506,30 @@ func ifExistsMode(s string) (string, error) {
 		return m, nil
 	}
 	return "", fmt.Errorf("emit: if-exists must be fail, replace, or append, got %q", s)
+}
+
+func existsError(schema, table string) error {
+	return fmt.Errorf("emit: %w: %s (use if-exists replace or append)", ErrTableExists, resultName(schema, table))
+}
+
+// checkPlans validates every plan and rejects two plans for the same table,
+// where the second would replace or append to the first.
+func checkPlans(d string, plans []*plan.Plan, schema string) error {
+	seen := map[string]bool{}
+	for _, p := range plans {
+		if err := checkPlan(p); err != nil {
+			return err
+		}
+		key := p.Table
+		if d != infer.Postgres {
+			key = strings.ToLower(key) // MySQL and SQLite table names may be case-insensitive
+		}
+		if seen[key] {
+			return fmt.Errorf("emit: two tables are named %s; give them distinct names", resultName(schema, p.Table))
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 func checkPlan(p *plan.Plan) error {

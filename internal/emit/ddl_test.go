@@ -255,6 +255,11 @@ func TestLiteral(t *testing.T) {
 		{infer.MySQL, normalize.Decimal("0.5"), "0.5"},
 		{infer.Postgres, normalize.Decimal("1; DROP TABLE t"), "'1; DROP TABLE t'"},
 		{infer.Postgres, normalize.Decimal("1e5"), "'1e5'"},
+		{infer.Postgres, normalize.Decimal("12345678901234567890.12"), "12345678901234567890.12"},
+		{infer.MySQL, normalize.Decimal("-12345678901234567890.12"), "-12345678901234567890.12"},
+		{infer.SQLite, normalize.Decimal("12345678901234567890.12"), "'12345678901234567890.12'"}, // bare would be REAL
+		{infer.SQLite, normalize.Decimal("-0.25"), "'-0.25'"},
+		{infer.MySQL, normalize.Decimal("x'; --"), `'x''; --'`},
 		{infer.Postgres, normalize.Decimal(""), "''"},
 		{infer.Postgres, day, "'2026-03-15'"},
 		{infer.MySQL, day, "'2026-03-15'"},

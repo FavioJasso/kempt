@@ -6,10 +6,13 @@ package report
 import (
 	"encoding/json"
 	"io"
+	"math"
+	"regexp"
 	"strings"
 
 	"github.com/FavioJasso/kempt/internal/grid"
 	"github.com/FavioJasso/kempt/internal/infer"
+	"github.com/FavioJasso/kempt/internal/normalize"
 	"github.com/FavioJasso/kempt/internal/plan"
 )
 
@@ -160,9 +163,25 @@ func tableJSON(p *plan.Plan) tableDoc {
 		})
 	}
 	for _, row := range p.Rows {
-		td.Rows = append(td.Rows, nonNil(row))
+		td.Rows = append(td.Rows, jsonRow(row))
 	}
 	return td
+}
+
+// jsonNumber matches a Decimal that is also a valid JSON number.
+var jsonNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
+
+// jsonRow copies row, rendering any Decimal that is not a valid JSON number
+// as a string so one odd value cannot make the whole document fail to encode.
+func jsonRow(row []any) []any {
+	out := make([]any, len(row))
+	for i, v := range row {
+		if d, ok := v.(normalize.Decimal); ok && !jsonNumber.MatchString(string(d)) {
+			v = string(d)
+		}
+		out[i] = v
+	}
+	return out
 }
 
 func sqlType(c plan.Column, dialect string) string {
@@ -178,7 +197,11 @@ func decisionDocs(ds []grid.Decision) []decisionDoc {
 	grid.SortDecisions(sorted)
 	out := make([]decisionDoc, len(sorted))
 	for i, d := range sorted {
-		out[i] = decisionDoc{Kind: d.Kind, Range: d.Range, Reason: d.Reason, Confidence: d.Confidence}
+		conf := d.Confidence
+		if math.IsNaN(conf) {
+			conf = 0 // encoding/json rejects NaN
+		}
+		out[i] = decisionDoc{Kind: d.Kind, Range: d.Range, Reason: d.Reason, Confidence: conf}
 	}
 	return out
 }

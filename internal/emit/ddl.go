@@ -18,7 +18,12 @@ const (
 	mysqlRowBudget     = 60000 // bytes of VARCHAR storage allowed per row (hard limit 65535)
 	mysqlColumnComment = 1024  // max characters in a column COMMENT
 	mysqlTableComment  = 2048  // max characters in a table COMMENT
+	innodbRecordLimit  = 8126  // worst-case in-page record bytes CREATE TABLE allows under innodb_strict_mode
 )
+
+// sqliteExactDigits is how many significant digits a decimal may have and
+// still survive SQLite's conversion to REAL in a NUMERIC column.
+const sqliteExactDigits = 15
 
 // DDLOptions control CREATE TABLE rendering.
 type DDLOptions struct {
@@ -36,14 +41,20 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 	comment := tableComment(p)
 
 	var b strings.Builder
-	if d == infer.MySQL {
+	switch d {
+	case infer.MySQL:
 		if moved := fitMySQLRow(types); len(moved) > 0 {
-			names := make([]string, len(moved))
-			for i, j := range moved {
-				names[i] = oneLine(p.Columns[j].Name)
-			}
 			fmt.Fprintf(&b, "-- kempt: %s changed from VARCHAR to TEXT to stay under the MySQL row size limit.\n",
-				strings.Join(names, ", "))
+				columnNames(p, moved))
+		}
+		if innodbRecordSize(types) >= innodbRecordLimit {
+			fmt.Fprintf(&b, "-- kempt: %d columns may exceed InnoDB's %d-byte record limit; run SET SESSION innodb_strict_mode = OFF first (kempt load does).\n",
+				len(types), innodbRecordLimit)
+		}
+	case infer.SQLite:
+		if moved := fitSQLiteDecimals(p, types); len(moved) > 0 {
+			fmt.Fprintf(&b, "-- kempt: %s stored as TEXT: SQLite NUMERIC keeps only %d significant digits.\n",
+				columnNames(p, moved), sqliteExactDigits)
 		}
 	}
 	b.WriteString("CREATE TABLE ")
@@ -133,7 +144,9 @@ func Literal(dialect string, v any) string {
 	case int:
 		return strconv.Itoa(x)
 	case normalize.Decimal:
-		if validDecimal(string(x)) {
+		// SQLite reads a bare literal as REAL, losing digits even in a TEXT
+		// column; quoted text gets the column's affinity, like a bound value.
+		if validDecimal(string(x)) && d != infer.SQLite {
 			return string(x)
 		}
 		return quoteString(d, string(x))
@@ -208,6 +221,120 @@ func fitMySQLRow(types []string) []int {
 		moved = append(moved, w)
 	}
 	return moved
+}
+
+// innodbRecordSize estimates the worst-case in-page record size InnoDB
+// checks at CREATE TABLE for columns of the given MySQL types (ROW_FORMAT
+// DYNAMIC, no primary key): fixed-size columns count their width and
+// variable-length ones at most 40 bytes plus a length byte, on top of the
+// record header, the null flags, and the hidden row id, transaction id, and
+// roll pointer.
+func innodbRecordSize(types []string) int {
+	size := 5 + (len(types)+7)/8 + 6 + 6 + 7
+	for _, t := range types {
+		size += innodbFieldSize(t)
+	}
+	return size
+}
+
+func innodbFieldSize(t string) int {
+	t = strings.ToUpper(strings.TrimSpace(t))
+	switch {
+	case t == "BOOLEAN", t == "BOOL", t == "TINYINT":
+		return 1
+	case t == "INT", t == "INTEGER":
+		return 4
+	case t == "BIGINT":
+		return 8
+	case t == "DATE":
+		return 3
+	case strings.HasPrefix(t, "DATETIME"), strings.HasPrefix(t, "TIMESTAMP"):
+		return 8
+	case strings.HasPrefix(t, "DECIMAL("):
+		var p, s int
+		if _, err := fmt.Sscanf(t, "DECIMAL(%d,%d)", &p, &s); err == nil && p >= s && s >= 0 {
+			return decimalBytes(p-s) + decimalBytes(s)
+		}
+		return 30
+	case strings.HasPrefix(t, "VARCHAR("):
+		return min(4*varcharLen(t), 40) + 1
+	}
+	return 41 // TEXT and other variable-length types
+}
+
+// decimalBytes is the storage MySQL uses for n decimal digits: 4 bytes per
+// 9 digits plus 0-4 bytes for the rest.
+func decimalBytes(n int) int {
+	return n/9*4 + [9]int{0, 1, 1, 2, 2, 3, 3, 4, 4}[n%9]
+}
+
+// fitSQLiteDecimals switches columns whose SQLite type would convert text to
+// numbers (any affinity but TEXT or BLOB) to TEXT when a decimal value in
+// them has more digits than a REAL keeps. It returns the indexes changed.
+func fitSQLiteDecimals(p *plan.Plan, types []string) []int {
+	var moved []int
+	for j := range types {
+		if j < len(p.Columns) && p.Columns[j].Type.Base == infer.Decimal && strings.EqualFold(types[j], "TEXT") {
+			moved = append(moved, j) // already TEXT because the precision is too high
+			continue
+		}
+		if !sqliteConvertsNumbers(types[j]) {
+			continue
+		}
+		for _, row := range p.Rows {
+			if v, ok := cell(row, j).(normalize.Decimal); ok && !sqliteExact(string(v)) {
+				types[j] = "TEXT"
+				moved = append(moved, j)
+				break
+			}
+		}
+	}
+	return moved
+}
+
+// sqliteConvertsNumbers reports whether a column declared as t has INTEGER,
+// REAL, or NUMERIC affinity, which store numeric-looking text as numbers.
+func sqliteConvertsNumbers(t string) bool {
+	t = strings.ToUpper(t)
+	switch {
+	case strings.Contains(t, "INT"):
+		return true
+	case strings.Contains(t, "CHAR"), strings.Contains(t, "CLOB"), strings.Contains(t, "TEXT"),
+		strings.Contains(t, "BLOB"), strings.TrimSpace(t) == "":
+		return false
+	}
+	return true
+}
+
+// sqliteExact reports whether SQLite stores the decimal d without losing
+// digits: an integer that fits int64, or at most sqliteExactDigits
+// significant digits.
+func sqliteExact(d string) bool {
+	if !validDecimal(d) {
+		return false
+	}
+	intPart, frac, _ := strings.Cut(d, ".")
+	frac = strings.TrimRight(frac, "0")
+	if frac == "" {
+		if _, err := strconv.ParseInt(intPart, 10, 64); err == nil {
+			return true
+		}
+	}
+	intPart = strings.TrimPrefix(intPart, "-")
+	digits := strings.TrimLeft(intPart+frac, "0")
+	if frac == "" {
+		digits = strings.TrimRight(digits, "0")
+	}
+	return len(digits) <= sqliteExactDigits
+}
+
+// columnNames lists the names of p's columns at idx for a SQL comment.
+func columnNames(p *plan.Plan, idx []int) string {
+	names := make([]string, len(idx))
+	for i, j := range idx {
+		names[i] = oneLine(p.Columns[j].Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // varcharLen returns n for a "VARCHAR(n)" type and 0 otherwise.

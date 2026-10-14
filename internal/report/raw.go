@@ -144,6 +144,9 @@ func writeRawGrid(w io.Writer, g *grid.Grid, rows, cols int) {
 
 // rawCell renders one cell for the dump.
 func rawCell(g *grid.Grid, r, c int) string {
+	if r >= len(g.Cells) || c >= len(g.Cells[r]) {
+		return "" // a ragged grid built by hand
+	}
 	cell := &g.Cells[r][c]
 	if m := cell.Merge; m != nil && !cell.IsMergeAnchor(r, c) && cell.IsEmpty() {
 		if r == m.R1 {
@@ -169,8 +172,8 @@ func rawCell(g *grid.Grid, r, c int) string {
 func writeRawFormulas(w io.Writer, g *grid.Grid, rows, cols int) {
 	var refs, texts []string
 	total := 0
-	for r := range rows {
-		for c := range cols {
+	for r := range min(rows, len(g.Cells)) {
+		for c := range min(cols, len(g.Cells[r])) {
 			if f := g.Cells[r][c].Formula; f != "" {
 				total++
 				if len(refs) < rawFormulas {

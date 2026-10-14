@@ -239,6 +239,17 @@ func TestRedact(t *testing.T) {
 		{`Password="a;b";Host=db`, `Password=****;Host=db`},
 		{"sslpassword=k3y host=db", "sslpassword=**** host=db"},
 		{"sqlite:///home/u@x/data.db", "sqlite:///home/u@x/data.db"},
+		// Scheme-less or malformed DSNs still hide the password.
+		{"user:hunter2@host/db", "user:****@host/db"},
+		{"user:hunter2@tcp(host:3306)", "user:****@tcp(host:3306)"},
+		{"postgres:u:hunter2@h/db", "postgres:****@h/db"},
+		{"postgres//u:hunter2@h/db", "postgres//u:****@h/db"},
+		{"  postgres://u:hunter2@h/db", "  postgres://u:****@h/db"},
+		{"user:hunter2@tcp(h)/db?x=http://y", "user:****@tcp(h)/db?x=http://y"},
+		{"Server=x;Password=hun ter2;Database=y", "Server=x;Password=****;Database=y"},
+		{"mysql://u@h/db?pass=hunter2", "mysql://u@h/db?pass=****"},
+		{"mysql://u@h/db?passive=1", "mysql://u@h/db?passive=1"},
+		{"file:/tmp/a:b@c.db", "file:/tmp/a:b@c.db"},
 		{"C:/Users/a@b/data.db", "C:/Users/a@b/data.db"},
 		{"./kempt.db", "./kempt.db"},
 		{"", ""},
@@ -247,6 +258,76 @@ func TestRedact(t *testing.T) {
 		t.Run(tt.raw, func(t *testing.T) {
 			if got := Redact(tt.raw); got != tt.want {
 				t.Errorf("Redact(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRedactNeverLeaks checks that the secret never appears in the redacted
+// text, the Parse error, or Describe, whatever the DSN looks like.
+func TestRedactNeverLeaks(t *testing.T) {
+	tests := []struct{ raw, secret string }{
+		{"postgres://u:s3cr%40t@h/db", "s3cr%40t"},
+		{"postgres://u:s3cr@t@h/db", "s3cr@t"},
+		{"postgres://u:s3/cr@t@h/db", "s3/cr"},
+		{"postgres://u:s3cr?t@h/db", "s3cr?t"},
+		{"postgres://u:p%3A%2F%40ss@h:5432/db?sslmode=require", "p%3A%2F%40ss"},
+		{"mysql://root:s3cr%23t@h/db", "s3cr%23t"},
+		{"mysql://root:s3cr#t@h/db", "s3cr#t"},
+		{"mysql://root:s3 cr@h/db", "s3 cr"},
+		{"mysql://root@h/db?password=s3cret", "s3cret"},
+		{"user:s3cret@host:5432/db", "s3cret"},
+		{"user:s3cret@tcp(host:3306)", "s3cret"},
+		{"user:s3cret@unix(/tmp/my.sock)/db", "s3cret"},
+		{"jdbc:postgresql://h/db?user=u&password=s3cret", "s3cret"},
+		{"host=h user=u password='s3 cret'", "s3 cret"},
+		{"Server=h;Uid=u;Pwd=s3 cret;", "cret"},
+		{"redis://:s3cret@cache:6379/0", "s3cret"},
+		{"http://u:s3cret@h/x.db", "s3cret"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			if got := Redact(tt.raw); strings.Contains(got, tt.secret) {
+				t.Errorf("Redact(%q) = %q leaks %q", tt.raw, got, tt.secret)
+			}
+			got, err := Parse(tt.raw)
+			if err != nil && strings.Contains(err.Error(), tt.secret) {
+				t.Errorf("Parse error leaks %q: %v", tt.secret, err)
+			}
+			if err == nil && strings.Contains(got.Describe(), tt.secret) {
+				t.Errorf("Describe leaks %q: %s", tt.secret, got.Describe())
+			}
+		})
+	}
+}
+
+// TestParseMySQLQueryCredentials checks that user and password query
+// parameters become credentials, not SET statements run on connect.
+func TestParseMySQLQueryCredentials(t *testing.T) {
+	tests := []struct{ raw, user, pass string }{
+		{"mysql://h/db?user=u&password=p%40ss", "u", "p@ss"},
+		{"mysql://u@h/db?password=pw", "u", "pw"},
+		{"mysql://u:url@h/db?password=query", "u", "url"},
+		{"mysql://u:pw@h/db?user=other", "u", "pw"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got, err := Parse(tt.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := mysql.ParseDSN(got.DSN)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.User != tt.user || cfg.Passwd != tt.pass {
+				t.Errorf("user=%q pass=%q, want %q %q", cfg.User, cfg.Passwd, tt.user, tt.pass)
+			}
+			if _, ok := cfg.Params["password"]; ok {
+				t.Errorf("password left as a system variable: %q", got.DSN)
+			}
+			if _, ok := cfg.Params["user"]; ok {
+				t.Errorf("user left as a system variable: %q", got.DSN)
 			}
 		})
 	}

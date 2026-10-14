@@ -164,6 +164,22 @@ func mysqlDSN(s string) (string, error) {
 		cfg.User = u.User.Username()
 		cfg.Passwd, _ = u.User.Password()
 	}
+	// go-sql-driver turns unknown parameters into SET statements, so
+	// credentials in the query string would run "SET password = ..." on
+	// connect (and echo it in errors). Use them as credentials instead.
+	for _, k := range []string{"user", "password"} {
+		v, ok := cfg.Params[k]
+		if !ok {
+			continue
+		}
+		delete(cfg.Params, k)
+		switch {
+		case k == "user" && cfg.User == "":
+			cfg.User = v
+		case k == "password" && cfg.Passwd == "":
+			cfg.Passwd = v
+		}
+	}
 	if strings.Contains(cfg.User, ":") {
 		return "", errors.New("user names containing ':' cannot be expressed in a go-sql-driver DSN")
 	}
@@ -172,28 +188,48 @@ func mysqlDSN(s string) (string, error) {
 }
 
 var (
+	// urlScheme matches the scheme that starts a URL.
+	urlScheme = regexp.MustCompile(`^\s*[A-Za-z][A-Za-z0-9+.-]*://`)
 	// driverAt matches the "@" that ends the user info of a go-sql-driver
 	// DSN, followed by an optional protocol and address and the "/" before
 	// the database name: "@/", "@tcp(host:3306)/".
 	driverAt = regexp.MustCompile(`@(\w+\([^)]*\))?/`)
 	// kvPassword matches password=value in key/value connection strings and
 	// URL query strings; the value may be single- or double-quoted.
-	kvPassword = regexp.MustCompile(`(?i)(^|[\s;&?])((?:ssl)?password|passwd|pwd)(\s*=\s*)('(?:\\.|[^'\\])*'|"(?:[^"]|"")*"|[^\s;&]*)`)
+	kvPassword = regexp.MustCompile(`(?i)(^|[\s;&?])((?:ssl)?password|passwd|pass|pwd)(\s*=\s*)('(?:\\.|[^'\\])*'|"(?:[^"]|"")*"|[^\s;&]*)`)
+	// adoPassword matches the rest of a password pair in a ";"-separated
+	// connection string, where unquoted values may hold spaces.
+	adoPassword = regexp.MustCompile(`(?i)((?:^|;)\s*(?:(?:ssl)?password|passwd|pass|pwd)\s*=\s*)[^;]*`)
 )
 
 // Redact replaces any password in raw with "****": the password of a URL
-// (the user name is kept), of a go-sql-driver user:pass@tcp(...)/db DSN, and
-// password=... pairs in key/value connection strings or query strings.
-// When the text is ambiguous it hides too much rather than too little.
+// (the user name is kept), of a go-sql-driver user:pass@tcp(...)/db DSN, of
+// any other user:pass@host text, and password=... pairs in key/value
+// connection strings or query strings. When the text is ambiguous it hides
+// too much rather than too little.
 func Redact(raw string) string {
 	s := raw
-	if i := strings.Index(s, "://"); i >= 0 {
-		s = s[:i+3] + redactUserinfo(s[i+3:])
+	if m := urlScheme.FindStringIndex(s); m != nil {
+		s = s[:m[1]] + redactUserinfo(s[m[1]:])
 	} else if m := driverAt.FindAllStringIndex(s, -1); len(m) > 0 {
 		at := m[len(m)-1][0]
 		s = redactPassword(s[:at]) + s[at:]
+	} else if at := strings.LastIndex(s, "@"); at >= 0 && !sqliteLike(s) {
+		// A scheme-less or malformed DSN such as user:pass@host/db.
+		s = redactPassword(s[:at]) + s[at:]
 	}
-	return kvPassword.ReplaceAllString(s, "${1}${2}${3}****")
+	s = kvPassword.ReplaceAllString(s, "${1}${2}${3}****")
+	if strings.Contains(s, ";") {
+		s = adoPassword.ReplaceAllString(s, "${1}****")
+	}
+	return s
+}
+
+// sqliteLike reports whether s reads as a SQLite path or URI, whose "@" and
+// ":" characters belong to the file name.
+func sqliteLike(s string) bool {
+	lower := strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(lower, "sqlite:") || strings.HasPrefix(lower, "file:") || isSQLitePath(lower)
 }
 
 // redactUserinfo redacts the password in the part of a URL after "://".

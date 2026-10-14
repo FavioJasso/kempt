@@ -44,6 +44,10 @@ var Dialects = []string{Postgres, MySQL, SQLite}
 // MaxPrecision is the largest NUMERIC precision kempt emits.
 const MaxPrecision = 38
 
+// SQLiteExactDigits is the most significant digits a decimal can have and
+// still survive SQLite's NUMERIC affinity, which stores it as a REAL.
+const SQLiteExactDigits = 15
+
 // Type is a dialect-neutral column type.
 type Type struct {
 	Base      Base `json:"base"`
@@ -85,6 +89,9 @@ func (t Type) SQL(dialect string) string {
 		case Bool, Int, BigInt:
 			return "INTEGER"
 		case Decimal:
+			if t.Precision > SQLiteExactDigits {
+				return "TEXT" // NUMERIC would round to a 64-bit float
+			}
 			return fmt.Sprintf("NUMERIC(%d,%d)", t.Precision, t.Scale)
 		case Date:
 			return "DATE"
