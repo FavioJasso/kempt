@@ -107,8 +107,11 @@ func TestColumn(t *testing.T) {
 			typ:    Type{Base: Text, MaxLen: 2},
 			values: []any{"NE", nil, "SW", nil, nil},
 			nulls:  []int{1, 3, 4},
-			decs: []dec{{grid.KNullToken, "Data!C3:C6", 0.95,
-				[]string{"Read 3 values in column region_code as NULL", `C3 ("NA"), C5 ("—"), C6 (" n/a ")`}}},
+			decs: []dec{
+				// In a column of short codes, NA may be North America: logged at 0.5.
+				{grid.KNullToken, "Data!C3", 0.5, []string{"NA may be a real code", `C3 ("NA")`}},
+				{grid.KNullToken, "Data!C5:C6", 0.95, []string{"Read 2 values in column region_code as NULL", `C5 ("—"), C6 (" n/a ")`}},
+			},
 		},
 		{
 			name:   "excel errors become NULL",
@@ -123,6 +126,7 @@ func TestColumn(t *testing.T) {
 			in:     col("Paid", boolean(true), str("no"), str(" Yes "), boolean(false), &grid.Cell{Kind: grid.Formula, Raw: "TRUE", Formula: "A1>0"}),
 			typ:    Type{Base: Bool},
 			values: []any{true, false, true, false, true},
+			decs:   []dec{{grid.KBoolText, "Data!C3:C4", 0.85, []string{"(Yes → true, no → false)"}}},
 		},
 		{
 			name:   "1 and 0 are ints, not bools",
@@ -431,7 +435,10 @@ func TestColumn(t *testing.T) {
 			in:     col("Mixed", str("  Acme "), num(42), serial(46096), boolean(true), str("x")),
 			typ:    Type{Base: Text, MaxLen: 10},
 			values: []any{"Acme", "42", "2026-03-15", "TRUE", "x"},
-			decs:   []dec{{grid.KTrimWhitespace, "Data!C2", 1, []string{`Trimmed leading or trailing whitespace from 1 value in column mixed: C2 ("  Acme ")`}}},
+			decs: []dec{
+				{grid.KTrimWhitespace, "Data!C2", 1, []string{`Trimmed leading or trailing whitespace from 1 value in column mixed: C2 ("  Acme ")`}},
+				{grid.KExcelSerialDate, "Data!C4", 0.9, []string{`C4 ("46096" → 2026-03-15)`}},
+			},
 		},
 		{
 			name:   "max length counts runes",
@@ -517,10 +524,10 @@ func TestColumn(t *testing.T) {
 			name:   "two-digit year pivot",
 			in:     col("Born", strs("1/2/68", "1/2/69", "15-Mar-00", "15-Mar-99")...),
 			typ:    Type{Base: Date},
-			values: []any{date(2068, time.January, 2), date(1969, time.January, 2), date(2000, time.March, 15), date(1999, time.March, 15)},
+			values: []any{date(1968, time.January, 2), date(1969, time.January, 2), date(2000, time.March, 15), date(1999, time.March, 15)},
 			decs: []dec{
 				{grid.KDateOrder, "Data!C2:C3", 0.5, []string{"--date-order dmy"}},
-				{grid.KDateParse, "Data!C2:C5", 0.9, []string{"M/D/YY (2)", "D-Mon-YY (2)"}},
+				{grid.KDateParse, "Data!C2:C5", 0.9, []string{"M/D/YY (2)", "D-Mon-YY (2)", "00–29 are 2000–2029"}},
 			},
 		},
 		{
@@ -528,6 +535,7 @@ func TestColumn(t *testing.T) {
 			in:     col("Start", serial(60), serial(61), serial(59)),
 			typ:    Type{Base: Text, MaxLen: 10},
 			values: []any{"60", "1900-03-01", "1900-02-28"},
+			decs:   []dec{{grid.KExcelSerialDate, "Data!C3:C4", 0.9, []string{"stays TEXT"}}},
 		},
 		{
 			name:   "timestamps keep fractional seconds",
@@ -739,5 +747,84 @@ func TestPercentFormattedNumbers(t *testing.T) {
 	}
 	if len(res.Decisions) != 1 || !strings.Contains(res.Decisions[0].Reason, "percent number format") {
 		t.Fatalf("decisions %+v", res.Decisions)
+	}
+}
+
+func TestValueFixes(t *testing.T) {
+	numFmt := func(v float64, mod func(*grid.Cell)) *grid.Cell {
+		c := &grid.Cell{Kind: grid.Number, Num: &v, Raw: strconv.FormatFloat(v, 'f', -1, 64)}
+		mod(c)
+		return c
+	}
+	text := func(ss ...string) []*grid.Cell {
+		var out []*grid.Cell
+		for _, s := range ss {
+			out = append(out, &grid.Cell{Kind: grid.String, Raw: s})
+		}
+		return out
+	}
+	run := func(header string, cells []*grid.Cell, opts Options) Result {
+		rows := make([]int, len(cells))
+		for i := range rows {
+			rows[i] = i + 1
+		}
+		return Column(Input{Sheet: "S", Name: header, Header: header, Col: 2, Rows: rows, Cells: cells}, opts)
+	}
+	has := func(r Result, kind string) bool {
+		for _, d := range r.Decisions {
+			if d.Kind == kind {
+				return true
+			}
+		}
+		return false
+	}
+
+	clock := func(c *grid.Cell) { c.TimeFmt = "clock" }
+	elapsed := func(c *grid.Cell) { c.TimeFmt = "elapsed" }
+	r := run("start", []*grid.Cell{numFmt(0.4375, clock), numFmt(0.5, clock), numFmt(0, clock)}, Options{})
+	if r.Type.Base != Text || !reflect.DeepEqual(r.Values, []any{"10:30:00", "12:00:00", "00:00:00"}) || !has(r, grid.KTimeText) {
+		t.Errorf("clock times: %v %v %v", r.Type, r.Values, r.Decisions)
+	}
+	r = run("duration", []*grid.Cell{numFmt(1.5208333333333333, elapsed), numFmt(0.25, elapsed)}, Options{})
+	if !reflect.DeepEqual(r.Values, []any{"36:30:00", "06:00:00"}) {
+		t.Errorf("elapsed: %v", r.Values)
+	}
+
+	masked := []*grid.Cell{{Kind: grid.String, Raw: "02134", Mask: "00000"}, {Kind: grid.String, Raw: "90210", Mask: "00000"}}
+	r = run("zip", masked, Options{})
+	if r.Type.Base != Text || !reflect.DeepEqual(r.Values, []any{"02134", "90210"}) || !has(r, grid.KZeroPad) {
+		t.Errorf("zip: %v %v %v", r.Type, r.Values, r.Decisions)
+	}
+
+	r = run("sex", text("F", "F", "F"), Options{})
+	if r.Type.Base != Text {
+		t.Errorf("single-letter one-polarity column became %v", r.Type)
+	}
+	r = run("paid", text("Y", "N", "Y"), Options{})
+	if r.Type.Base != Bool || !has(r, grid.KBoolText) {
+		t.Errorf("Y/N column: %v %v", r.Type, r.Decisions)
+	}
+
+	r = run("card", text("4.11111E+15", "5.49999E+15"), Options{})
+	if r.Type.Base != BigInt || !has(r, grid.KExponent) {
+		t.Errorf("exponent IDs: %v %v", r.Type, r.Decisions)
+	}
+
+	r = run("menge", text("1.250", "12.500", "3.000"), Options{DecimalComma: true})
+	if r.Type.Base != Int || !reflect.DeepEqual(r.Values, []any{int64(1250), int64(12500), int64(3000)}) {
+		t.Errorf("decimal comma thousands: %v %v", r.Type, r.Values)
+	}
+	r = run("betrag", text("1.234,56", "999,00"), Options{DecimalComma: true})
+	if !reflect.DeepEqual(r.Values, []any{normalize.Decimal("1234.56"), normalize.Decimal("999.00")}) {
+		t.Errorf("decimal comma decimals: %v", r.Values)
+	}
+
+	big := func(raw string) *grid.Cell {
+		v, _ := strconv.ParseFloat(raw, 64)
+		return &grid.Cell{Kind: grid.Number, Num: &v, Raw: raw}
+	}
+	r = run("card", []*grid.Cell{big("4111111111111111"), big("1234567890123456789")}, Options{})
+	if !reflect.DeepEqual(r.Values, []any{int64(4111111111111111), int64(1234567890123456789)}) {
+		t.Errorf("exact integers: %v", r.Values)
 	}
 }

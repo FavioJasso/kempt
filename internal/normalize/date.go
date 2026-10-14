@@ -116,8 +116,9 @@ func ParseDate(s string, order DateOrder) (ParsedDate, bool) {
 		return ParsedDate{}, false
 	}
 	if yearTwo {
+		// Excel's window: 00–29 are 2000–2029, 30–99 are 1930–1999.
 		y += 2000
-		if y >= 2069 {
+		if y >= 2030 {
 			y -= 100
 		}
 	}
@@ -211,7 +212,10 @@ func ExcelSerial(v float64, date1904 bool) (t time.Time, hasTime bool, ok bool) 
 		return time.Time{}, false, false
 	}
 	day := math.Floor(v)
-	secs := math.Round((v - day) * 86400)
+	ms := math.Round((v - day) * 86400000) // Excel keeps millisecond precision
+	if ms >= 86400000 {
+		day, ms = day+1, 0
+	}
 	base := epoch1900
 	switch {
 	case date1904:
@@ -221,11 +225,11 @@ func ExcelSerial(v float64, date1904 bool) (t time.Time, hasTime bool, ok bool) 
 	case day < 60:
 		base = base.AddDate(0, 0, 1)
 	}
-	t = base.AddDate(0, 0, int(day)).Add(time.Duration(secs) * time.Second)
+	t = base.AddDate(0, 0, int(day)).Add(time.Duration(ms) * time.Millisecond)
 	if t.Year() > 9999 {
 		return time.Time{}, false, false
 	}
-	return t, t.Hour() != 0 || t.Minute() != 0 || t.Second() != 0, true
+	return t, t.Hour() != 0 || t.Minute() != 0 || t.Second() != 0 || t.Nanosecond() != 0, true
 }
 
 // PlausibleSerial reports whether v falls in the serial range kempt accepts

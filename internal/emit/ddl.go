@@ -15,7 +15,7 @@ import (
 
 // MySQL limits that shape the DDL.
 const (
-	mysqlRowBudget     = 60000 // bytes of VARCHAR storage allowed per row (hard limit 65535)
+	mysqlRowLimit      = 65535 // bytes per row, VARCHAR widths and fixed-width columns included
 	mysqlColumnComment = 1024  // max characters in a column COMMENT
 	mysqlTableComment  = 2048  // max characters in a table COMMENT
 	innodbRecordLimit  = 8126  // worst-case in-page record bytes CREATE TABLE allows under innodb_strict_mode
@@ -70,7 +70,7 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 	for i, c := range p.Columns {
 		b.WriteString("  " + QuoteIdent(d, c.Name) + " " + types[i])
 		if d == infer.MySQL && c.Comment != "" {
-			b.WriteString(" COMMENT " + Literal(d, truncateRunes(c.Comment, mysqlColumnComment)))
+			b.WriteString(" COMMENT " + Literal(d, truncateRunes(mysqlComment(c.Comment), mysqlColumnComment)))
 		}
 		if i < len(p.Columns)-1 {
 			b.WriteString(",")
@@ -84,7 +84,7 @@ func DDL(p *plan.Plan, dialect string, opts DDLOptions) string {
 	if d == infer.MySQL {
 		b.WriteString(" ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")
 		if comment != "" {
-			b.WriteString(" COMMENT=" + Literal(d, truncateRunes(comment, mysqlTableComment)))
+			b.WriteString(" COMMENT=" + Literal(d, truncateRunes(mysqlComment(comment), mysqlTableComment)))
 		}
 	}
 	b.WriteString(";\n")
@@ -195,32 +195,46 @@ func columnTypes(p *plan.Plan, d string) []string {
 }
 
 // fitMySQLRow switches the widest VARCHAR columns to TEXT (leftmost first on
-// ties) until the VARCHAR columns fit mysqlRowBudget at 4 bytes per
-// character. It returns the indexes it changed, in the order changed.
+// ties) until the whole row (VARCHARs at 4 bytes per character, fixed-width
+// columns, TEXT pointers, and the null bitmap) fits MySQL's 65,535-byte row
+// limit. It returns the indexes it changed, in the order changed.
 func fitMySQLRow(types []string) []int {
-	widths := make([]int, len(types))
+	budget := mysqlRowLimit - (len(types)+7)/8 - 64 // null bitmap and a margin
 	total := 0
-	for i, t := range types {
-		widths[i] = varcharLen(t)
-		total += widths[i] * 4
+	for _, t := range types {
+		total += mysqlRowBytes(t)
 	}
 	var moved []int
-	for total > mysqlRowBudget {
-		w := 0
-		for i, n := range widths {
-			if n > widths[w] {
+	for total > budget {
+		w := -1
+		for i, t := range types {
+			if n := varcharLen(t); n > 0 && (w < 0 || n > varcharLen(types[w])) {
 				w = i
 			}
 		}
-		if widths[w] == 0 {
+		if w < 0 {
 			break
 		}
-		total -= widths[w] * 4
-		widths[w] = 0
+		total -= mysqlRowBytes(types[w]) - mysqlRowBytes("TEXT")
 		types[w] = "TEXT"
 		moved = append(moved, w)
 	}
 	return moved
+}
+
+// mysqlRowBytes is how much of MySQL's 65,535-byte row limit a column uses:
+// utf8mb4 VARCHARs count their full width, TEXT columns only their pointer.
+func mysqlRowBytes(t string) int {
+	if n := varcharLen(t); n > 0 {
+		if n*4 > 255 {
+			return n*4 + 2
+		}
+		return n*4 + 1
+	}
+	if u := strings.ToUpper(t); strings.HasSuffix(u, "TEXT") || strings.HasSuffix(u, "BLOB") {
+		return 12
+	}
+	return innodbFieldSize(t)
 }
 
 // innodbRecordSize estimates the worst-case in-page record size InnoDB
@@ -403,4 +417,19 @@ func truncateRunes(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n])
+}
+
+// mysqlComment spells out characters beyond the Basic Multilingual Plane
+// (emoji) as U+1F525: MySQL stores comments as utf8mb3 and would turn them
+// into "?".
+func mysqlComment(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r > 0xFFFF {
+			fmt.Fprintf(&b, "U+%04X", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

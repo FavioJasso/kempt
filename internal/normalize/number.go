@@ -268,3 +268,19 @@ func (n Number) Times100() Number {
 	out.IntDigits, out.Scale = len(ip), len(fp)
 	return out
 }
+
+// ParseNumberDecimalComma parses s written with "," as the decimal point and
+// "." as the thousands separator ("1.234,56" → 1234.56), as many European
+// spreadsheets do.
+func ParseNumberDecimalComma(s string) (Number, bool) {
+	swapped := strings.Map(func(r rune) rune {
+		switch r {
+		case '.':
+			return ','
+		case ',':
+			return '.'
+		}
+		return r
+	}, s)
+	return ParseNumber(swapped)
+}

@@ -587,7 +587,7 @@
             {
               "kind": "date_parse",
               "range": "Orders!C2:C13",
-              "reason": "Parsed 11 text dates in column ship_date into date values; layouts seen: MM/DD/YYYY (3); M/D/YY (2); Mon D, YYYY (2); D-Mon-YYYY (2); YYYY-MM-DD (1); M/D/YYYY (1). Examples: C2 (\"03/15/2026\" → 2026-03-15), C3 (\"3/16/26\" → 2026-03-16), C4 (\"Mar 17, 2026\" → 2026-03-17), C5 (\"18-Mar-2026\" → 2026-03-18), C6 (\"2026-03-19\" → 2026-03-19) and 6 more.",
+              "reason": "Parsed 11 text dates in column ship_date into date values; layouts seen: MM/DD/YYYY (3); M/D/YY (2); Mon D, YYYY (2); D-Mon-YYYY (2); YYYY-MM-DD (1); M/D/YYYY (1). Examples: C2 (\"03/15/2026\" → 2026-03-15), C3 (\"3/16/26\" → 2026-03-16), C4 (\"Mar 17, 2026\" → 2026-03-17), C5 (\"18-Mar-2026\" → 2026-03-18), C6 (\"2026-03-19\" → 2026-03-19) and 6 more. Two-digit years follow Excel's rule: 00–29 are 2000–2029 and 30–99 are 1930–1999.",
               "confidence": 0.9
             },
             {
@@ -635,8 +635,8 @@
             {
               "kind": "null_token",
               "range": "Orders!K6",
-              "reason": "Read 1 value in column region_code as NULL because it is a missing-value placeholder: K6 (\"NA\").",
-              "confidence": 0.95
+              "reason": "Read 1 value in column region_code as NULL because NA is a missing-value placeholder, but the column holds short codes, so NA may be a real code (North America, Namibia): K6 (\"NA\").",
+              "confidence": 0.5
             },
             {
               "kind": "accounting_negative",

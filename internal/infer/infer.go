@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,10 @@ import (
 type Options struct {
 	Lenient   float64 // fraction of values that must parse for a non-text type; 0 or >= 1 means all of them
 	DateOrder string  // "" detects day/month order (month first when ambiguous); "mdy" or "dmy" forces it
-	Date1904  bool    // the workbook uses the 1904 date system
+	Date1904  bool
+	// DecimalComma parses text numbers with "," as the decimal point and "."
+	// as the thousands separator (set by the caller from sheet-wide evidence).
+	DecimalComma bool // the workbook uses the 1904 date system
 }
 
 // Input is one source column to type.
@@ -66,6 +70,7 @@ type entry struct {
 	date    normalize.ParsedDate // text dates only
 	hint    bool                 // numeric cell read as a serial date because of the header
 	textInt *float64             // text that is a plain integer (CSV), a serial candidate under the header hint
+	clock   bool                 // numeric cell with a time-only format: stored as HH:MM:SS text
 
 	tried  [2]bool // ParseDate ran for each normalize.DateOrder
 	parsed [2]normalize.ParsedDate
@@ -203,7 +208,14 @@ func (c *column) parse(e *entry) {
 	case srcSerial:
 		c.serial(e)
 	case srcNumber:
+		if e.cell.TimeFmt != "" {
+			e.clock = true // a time of day or a duration is not a quantity to type as decimal
+			return
+		}
 		e.num = normalize.NumberFromFloat(*e.cell.Num)
+		if n, ok := normalize.ParseNumber(e.cell.Raw); ok && n.IsInt() && !strings.ContainsAny(e.cell.Raw, "eE") {
+			e.num = n // integers keep every digit the file stores
+		}
 		if e.cell.PctFmt {
 			// A percent number format shows 0.12 as 12%; store what the sheet shows.
 			e.num = e.num.Times100()
@@ -226,9 +238,16 @@ func (c *column) parse(e *entry) {
 			c.serialAt(e, *e.textInt)
 			return
 		}
+		if e.cell.Mask != "" {
+			return // zero-padded by its number format: an identifier, kept as text
+		}
 		e.b, e.ok[Bool] = normalize.ParseBool(e.text)
 		if !e.cell.DateFmt && !bareExponent(e.text) {
-			if n, ok := normalize.ParseNumber(e.text); ok {
+			parse := normalize.ParseNumber
+			if c.opts.DecimalComma {
+				parse = normalize.ParseNumberDecimalComma
+			}
+			if n, ok := parse(e.text); ok {
 				e.num = n
 				e.numeric()
 			}
@@ -302,6 +321,9 @@ func (c *column) choose() {
 			}
 		}
 	}
+	if cnt[Bool] > 0 && !c.realBools() {
+		cnt[Bool] = 0
+	}
 	best, bestBase := 0, Text
 	for b := range Text {
 		if cnt[b] > best {
@@ -341,9 +363,22 @@ func (c *column) choose() {
 	c.res.Type = typeOf(base, cast, c.res.Values)
 
 	if len(c.tokens) > 0 {
-		n := len(c.tokens)
-		c.add(grid.KNullToken, c.tokens, 0.95, fmt.Sprintf("Read %s in column %s as NULL because %s: %s.",
-			count(n, "value"), c.name(), plural(n, "it is a missing-value placeholder", "they are missing-value placeholders"), c.examples(c.tokens, false)))
+		var codes, others []int
+		for _, i := range c.tokens {
+			if trim(c.in.Cells[i].Raw) == "NA" && c.codeColumn() {
+				codes = append(codes, i)
+			} else {
+				others = append(others, i)
+			}
+		}
+		if n := len(others); n > 0 {
+			c.add(grid.KNullToken, others, 0.95, fmt.Sprintf("Read %s in column %s as NULL because %s: %s.",
+				count(n, "value"), c.name(), plural(n, "it is a missing-value placeholder", "they are missing-value placeholders"), c.examples(others, false)))
+		}
+		if n := len(codes); n > 0 {
+			c.add(grid.KNullToken, codes, 0.5, fmt.Sprintf("Read %s in column %s as NULL because NA is a missing-value placeholder, but the column holds short codes, so NA may be a real code (North America, Namibia): %s.",
+				count(n, "value"), c.name(), c.examples(codes, false)))
+		}
 	}
 	if len(c.errs) > 0 {
 		n := len(c.errs)
@@ -381,8 +416,11 @@ func (c *column) choose() {
 	}
 
 	switch base {
+	case Bool:
+		c.boolDecision(cast)
 	case Int, BigInt, Decimal:
 		c.numberDecisions(cast)
+		c.exponentDecision(cast)
 	case Date, Timestamp:
 		c.dateDecisions(cast, base)
 		c.orderDecision()
@@ -391,7 +429,159 @@ func (c *column) choose() {
 			c.orderDecision()
 		}
 		c.trimDecision(cast)
+		c.textDecisions(cast)
 	}
+}
+
+// realBools reports whether the column's boolean candidates are trustworthy:
+// single letters (Y, N, T, F) count only when both a true and a false value
+// appear, so a column of "F" (female) or "N" (north) stays text.
+func (c *column) realBools() bool {
+	var t, f, words bool
+	for _, e := range c.es {
+		if !e.ok[Bool] {
+			continue
+		}
+		if e.cell.Kind == grid.Bool || len(e.text) > 1 {
+			words = true
+		}
+		if e.b {
+			t = true
+		} else {
+			f = true
+		}
+	}
+	return words || (t && f)
+}
+
+// codeColumn reports whether the column's other values are short upper-case
+// codes (EU, APAC), where "NA" may be a code rather than a placeholder.
+func (c *column) codeColumn() bool {
+	n := 0
+	for _, e := range c.es {
+		if len(e.text) < 2 || len(e.text) > 5 || strings.ToUpper(e.text) != e.text || strings.IndexFunc(e.text, func(r rune) bool { return r < 'A' || r > 'Z' }) >= 0 {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// boolDecision logs booleans read from text tokens.
+func (c *column) boolDecision(cast []*entry) {
+	var idx []int
+	seen := map[string]bool{}
+	var pairs []string
+	for _, e := range cast {
+		if l := strings.ToLower(e.text); e.cell.Kind == grid.Bool || l == "true" || l == "false" {
+			continue // already a boolean; nothing to explain
+		}
+		idx = append(idx, e.i)
+		if key := strings.ToLower(e.text); !seen[key] {
+			seen[key] = true
+			pairs = append(pairs, fmt.Sprintf("%s → %v", e.text, e.b))
+		}
+	}
+	if len(idx) == 0 {
+		return
+	}
+	sort.Strings(pairs)
+	c.add(grid.KBoolText, idx, 0.85, fmt.Sprintf("Read %s in column %s as booleans (%s): %s.",
+		count(len(idx), "text value"), c.name(), strings.Join(pairs, ", "), c.examples(idx, false)))
+}
+
+// exponentDecision flags long integers expanded from exponent notation
+// (4.11111E+15 → 4111110000000000): a spreadsheet that saved an ID or card
+// number that way already lost its trailing digits, and the zeros kempt
+// fills in are not the original value. Ordinary scientific values pass.
+func (c *column) exponentDecision(cast []*entry) {
+	var padded []int
+	for _, e := range cast {
+		if e.src != srcText || !strings.ContainsAny(e.text, "eE") {
+			continue
+		}
+		mant, _, _ := strings.Cut(strings.ToLower(e.text), "e")
+		sig := len(strings.TrimLeft(strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, mant), "0"))
+		if e.num.IntDigits >= 12 && e.num.IntDigits > sig {
+			padded = append(padded, e.i)
+		}
+	}
+	if len(padded) > 0 {
+		c.add(grid.KExponent, padded, 0.4, fmt.Sprintf("Expanded %s in column %s from exponent notation; the digits after the mantissa were filled with zeros and may not be the original value (long IDs lose digits this way when a spreadsheet saves them): %s.",
+			count(len(padded), "value"), c.name(), c.examples(padded, true)))
+	}
+}
+
+// textDecisions logs values a TEXT column renders differently from the file:
+// time-only cells, zero-padded numbers, and date-formatted serials.
+func (c *column) textDecisions(cast []*entry) {
+	var clock, padded, dates []int
+	masks := map[string]bool{}
+	var maskList []string
+	for _, e := range cast {
+		switch {
+		case e.clock:
+			clock = append(clock, e.i)
+		case e.cell.Mask != "":
+			padded = append(padded, e.i)
+			if !masks[e.cell.Mask] {
+				masks[e.cell.Mask] = true
+				maskList = append(maskList, strconv.Quote(e.cell.Mask))
+			}
+		case e.src == srcSerial && (e.ok[Date] || e.ok[Timestamp]):
+			dates = append(dates, e.i)
+		}
+	}
+	if len(clock) > 0 {
+		c.add(grid.KTimeText, clock, 0.9, fmt.Sprintf("Column %s uses a time-only number format, so %s stored as HH:MM:SS text rather than as the fraction of a day Excel keeps: %s.",
+			c.name(), plural(len(clock), "its 1 value is", fmt.Sprintf("its %d values are", len(clock))), c.clockExamples(clock)))
+	}
+	if len(padded) > 0 {
+		c.add(grid.KZeroPad, padded, 0.9, fmt.Sprintf("Column %s keeps %s as text with the leading zeros its number format %s shows: %s.",
+			c.name(), count(len(padded), "value"), strings.Join(maskList, ", "), c.examples(padded, false)))
+	}
+	if len(dates) > 0 {
+		c.add(grid.KExcelSerialDate, dates, 0.9, fmt.Sprintf("Rendered %s in column %s from Excel serial numbers as ISO dates because the cells use a date number format; the column stays TEXT because of its other values: %s.",
+			count(len(dates), "value"), c.name(), c.examples(dates, true)))
+	}
+}
+
+// clockExamples lists time cells with their serial and rendered text.
+func (c *column) clockExamples(idx []int) string {
+	parts := make([]string, 0, maxExamples)
+	for _, i := range idx[:min(len(idx), maxExamples)] {
+		cell := c.in.Cells[i]
+		parts = append(parts, fmt.Sprintf("%s (%s → %s)", grid.CellRef(c.row(i), c.in.Col), cell.Raw, normalize.Format(c.res.Values[i])))
+	}
+	out := strings.Join(parts, ", ")
+	if n := len(idx) - maxExamples; n > 0 {
+		out += fmt.Sprintf(" and %d more", n)
+	}
+	return out
+}
+
+// clockText renders a time serial as HH:MM:SS. A time of day ignores whole
+// days; an elapsed duration counts them into the hours (36:30:00).
+func clockText(v float64, elapsed bool) string {
+	neg := v < 0
+	ms := int64(math.Round(math.Abs(v) * 86400000))
+	if !elapsed {
+		ms %= 86400000
+	}
+	h, m, sec, frac := ms/3600000, ms/60000%60, ms/1000%60, ms%1000
+	out := fmt.Sprintf("%02d:%02d:%02d", h, m, sec)
+	if frac != 0 {
+		out += fmt.Sprintf(".%03d", frac)
+	}
+	if neg && elapsed {
+		out = "-" + out
+	}
+	return out
 }
 
 // capRounds reports the decimal values that a precision-capped NUMERIC(38,s)
@@ -434,6 +624,8 @@ func value(e *entry, base Base) any {
 		return normalize.NewTimestamp(e.t)
 	}
 	switch {
+	case e.clock:
+		return clockText(*e.cell.Num, e.cell.TimeFmt == "elapsed")
 	case e.cell.Kind == grid.Bool && e.ok[Bool]:
 		if e.b {
 			return "TRUE"
@@ -566,8 +758,15 @@ func (c *column) dateDecisions(cast []*entry, base Base) {
 		for k, l := range layouts {
 			parts[k] = fmt.Sprintf("%s (%d)", l, seen[l])
 		}
-		c.add(grid.KDateParse, text, 0.9, fmt.Sprintf("Parsed %s in column %s into %s values; layouts seen: %s. Examples: %s.",
-			count(len(text), "text date"), c.name(), base, strings.Join(parts, "; "), c.examples(text, true)))
+		window := ""
+		for _, l := range layouts {
+			if strings.Contains(strings.ReplaceAll(l, "YYYY", ""), "YY") {
+				window = " Two-digit years follow Excel's rule: 00–29 are 2000–2029 and 30–99 are 1930–1999."
+				break
+			}
+		}
+		c.add(grid.KDateParse, text, 0.9, fmt.Sprintf("Parsed %s in column %s into %s values; layouts seen: %s. Examples: %s.%s",
+			count(len(text), "text date"), c.name(), base, strings.Join(parts, "; "), c.examples(text, true), window))
 	}
 }
 

@@ -45,6 +45,8 @@ type Cell struct {
 	Merge   *Range   // non-nil when the cell is part of a merged range
 	DateFmt bool     // the cell's number format shows a date (time-only formats do not count)
 	PctFmt  bool     // the cell's number format shows a percentage (0.12 displays as 12%)
+	TimeFmt string   // "clock" (h:mm) or "elapsed" ([h]:mm) when the number format shows only a time
+	Mask    string   // zero-padding number format ("00000") the value was rendered through; Raw holds the padded text
 	Formula string   // formula text without the leading "=", when Kind == Formula
 }
 

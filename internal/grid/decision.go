@@ -39,6 +39,11 @@ const (
 	KExcelSerialDate = "excel_serial"    // numeric serials read as dates
 	KDateParse       = "date_parse"      // text dates parsed
 	KTrimWhitespace  = "trim_whitespace" // leading/trailing whitespace removed from text
+	KTimeText        = "time_text"       // time-only cells stored as HH:MM:SS text
+	KZeroPad         = "zero_padded"     // zero-padding number format kept as text ("02134")
+	KBoolText        = "bool_text"       // text tokens read as booleans (Y → true)
+	KExponent        = "exponent"        // exponent notation expanded (4.11E+15)
+	KDecimalComma    = "decimal_comma"   // numbers read with a comma decimal point
 )
 
 // Decision is one logged transformation.

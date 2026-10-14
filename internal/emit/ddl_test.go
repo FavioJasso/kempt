@@ -126,8 +126,22 @@ func TestDDLSQLTypeFallback(t *testing.T) {
 	}
 }
 
+func repeat(n, times int) []int {
+	out := make([]int, times)
+	for i := range out {
+		out[i] = n
+	}
+	return out
+}
+
 func TestDDLMySQLRowSize(t *testing.T) {
-	text := func(n int) infer.Type { return infer.Type{Base: infer.Text, MaxLen: n} }
+	// A negative length makes a BIGINT column.
+	text := func(n int) infer.Type {
+		if n < 0 {
+			return infer.Type{Base: infer.BigInt}
+		}
+		return infer.Type{Base: infer.Text, MaxLen: n}
+	}
 	tests := []struct {
 		name      string
 		lens      []int
@@ -136,9 +150,11 @@ func TestDDLMySQLRowSize(t *testing.T) {
 		{"fits", []int{1000, 1000, 500, 10}, nil},
 		{"just under budget", []int{512, 16, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000}, nil},
 		{"widest first, leftmost on ties", []int{200, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000},
-			[]string{"c1", "c2", "c3"}},
+			[]string{"c1", "c2"}},
 		{"many wide", []int{1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000},
-			[]string{"c0", "c1", "c2", "c3", "c4", "c5"}},
+			[]string{"c0", "c1", "c2", "c3", "c4"}},
+		// Fixed-width columns count too: 58 VARCHAR(256) plus 800 BIGINTs overflow.
+		{"fixed widths count", append(repeat(256, 58), repeat(-8, 800)...), []string{"c0"}},
 		{"beyond 1024 already TEXT", []int{5000, 1000, 1000}, nil},
 	}
 	for _, tt := range tests {
@@ -157,9 +173,9 @@ func TestDDLMySQLRowSize(t *testing.T) {
 						typ = strings.TrimSuffix(strings.TrimPrefix(l, line), ",")
 					}
 				}
-				total += varcharLen(typ) * 4
+				total += mysqlRowBytes(typ)
 			}
-			if total > mysqlRowBudget {
+			if total > mysqlRowLimit {
 				t.Errorf("VARCHAR bytes = %d, over budget:\n%s", total, got)
 			}
 			if tt.wantMoved == nil {

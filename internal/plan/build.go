@@ -39,6 +39,10 @@ func Build(g *grid.Grid, opts Options) *Sheet {
 	}
 	iopts := opts.Infer
 	iopts.Date1904 = g.Date1904
+	if d, ok := decimalComma(g, res); ok && !iopts.DecimalComma {
+		iopts.DecimalComma = true
+		sh.Decisions = append(sh.Decisions, d)
+	}
 
 	base := opts.Table
 	if base == "" {
@@ -256,4 +260,50 @@ func UniqueTables(sheets []*Sheet) {
 			seen[name] = true
 		}
 	}
+}
+
+var (
+	// Numbers only a decimal comma explains: "1.234,56", "12,50", "€ 3,5".
+	euNumber = regexp.MustCompile(`^[-−(]?\s*[$€£¥]?\s*(\d{1,3}(\.\d{3})+,\d+|\d+,\d{1,2})\s*[€%]?\)?$`)
+	// Numbers only a decimal point explains: "1,234.56", "12.50".
+	usNumber = regexp.MustCompile(`^[-−(]?\s*[$€£¥]?\s*(\d{1,3}(,\d{3})+\.\d+|\d+\.\d{1,2})\s*[€%]?\)?$`)
+)
+
+// decimalComma looks at every text value in the sheet's tables. When some
+// numbers can only be read with a comma as the decimal point ("1.234,56")
+// and none only with a decimal point ("12.50"), the sheet uses decimal
+// commas, so ambiguous values like "1.250" mean 1250, not 1.25.
+func decimalComma(g *grid.Grid, res detect.Result) (grid.Decision, bool) {
+	eu, us := 0, 0
+	var first [2]int
+	var example string
+	for _, rg := range res.Regions {
+		if rg.Skipped {
+			continue
+		}
+		for _, r := range rg.Data {
+			for _, hc := range rg.Cols {
+				c := g.At(r, hc.Col)
+				if c == nil || c.Num != nil || c.IsEmpty() {
+					continue
+				}
+				t := strings.TrimSpace(c.Raw)
+				switch {
+				case euNumber.MatchString(t):
+					if eu == 0 {
+						first, example = [2]int{r, hc.Col}, t
+					}
+					eu++
+				case usNumber.MatchString(t):
+					us++
+				}
+			}
+		}
+	}
+	if eu == 0 || us > 0 {
+		return grid.Decision{}, false
+	}
+	return grid.NewDecision(grid.KDecimalComma, g.Sheet, grid.Range{R1: first[0], C1: first[1], R2: first[0], C2: first[1]}, 0.85,
+		fmt.Sprintf("This sheet writes numbers with a decimal comma (%s %q and %d more), so every number is read with \",\" as the decimal point and \".\" as the thousands separator (\"1.250\" is 1250).",
+			grid.CellRef(first[0], first[1]), example, eu-1)), true
 }

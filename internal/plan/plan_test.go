@@ -246,3 +246,25 @@ func TestDecisionsUseFinalNames(t *testing.T) {
 		}
 	}
 }
+
+func TestDecimalCommaSheet(t *testing.T) {
+	g := mk(t, "eu", [][]any{
+		{"Artikel", "Betrag", "Menge"},
+		{"A", "1.234,56", "1.250"},
+		{"B", "999,00", "12.500"},
+		{"C", "12,50", "3.000"},
+	})
+	sh := Build(g, Options{})
+	p := sh.Tables[0]
+	if !hasDecision(sh.Decisions, grid.KDecimalComma) {
+		t.Fatalf("decisions %v", sh.Decisions)
+	}
+	if p.Rows[0][1] != normalize.Decimal("1234.56") || p.Rows[0][2] != int64(1250) || p.Rows[1][2] != int64(12500) {
+		t.Fatalf("rows %v", p.Rows)
+	}
+	// A US sheet is untouched.
+	g = mk(t, "us", [][]any{{"Item", "Price", "Qty"}, {"A", "12.50", "1,250"}, {"B", "3.75", "2,500"}})
+	if sh := Build(g, Options{}); hasDecision(sh.Decisions, grid.KDecimalComma) || sh.Tables[0].Rows[0][2] != int64(1250) {
+		t.Fatalf("US sheet: %v %v", sh.Decisions, sh.Tables[0].Rows)
+	}
+}

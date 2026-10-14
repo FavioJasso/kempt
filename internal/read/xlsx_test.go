@@ -207,9 +207,13 @@ func TestFormatKind(t *testing.T) {
 		code string
 		want numFmt
 	}{
-		{"h:mm AM/PM", fmtPlain},
-		{"[h]:mm", fmtPlain},
-		{"hh:mm:ss", fmtPlain},
+		{"h:mm AM/PM", fmtClock},
+		{"[h]:mm", fmtElapsed},
+		{"hh:mm:ss", fmtClock},
+		{"00000", fmtZeroPad},
+		{"00000-0000", fmtZeroPad},
+		{"000000;@", fmtZeroPad},
+		{"0", fmtPlain},
 		{"m/d/yy h:mm", fmtDate},
 		{"yyyy-mm-dd hh:mm:ss", fmtDate},
 		{"mmm", fmtDate},
@@ -225,10 +229,62 @@ func TestFormatKind(t *testing.T) {
 			t.Errorf("formatKind(%q) = %v, want %v", tt.code, got, tt.want)
 		}
 	}
-	for id, want := range map[int]numFmt{9: fmtPct, 10: fmtPct, 14: fmtDate, 20: fmtPlain, 2: fmtPlain} {
+	for id, want := range map[int]numFmt{9: fmtPct, 10: fmtPct, 14: fmtDate, 20: fmtClock, 46: fmtElapsed, 2: fmtPlain} {
 		if got := builtinKind(id); got != want {
 			t.Errorf("builtinKind(%d) = %v, want %v", id, got, want)
 		}
+	}
+}
+
+func TestApplyMask(t *testing.T) {
+	tests := []struct {
+		mask string
+		v    float64
+		want string
+		ok   bool
+	}{
+		{"00000", 2134, "02134", true},
+		{"00000", 90210, "90210", true},
+		{"00000-0000", 21341234, "02134-1234", true},
+		{"000000", 42, "000042", true},
+		{"00000", 123456, "", false},
+		{"00000", -5, "", false},
+		{"00000", 1.5, "", false},
+	}
+	for _, tt := range tests {
+		got, ok := applyMask(tt.mask, tt.v)
+		if got != tt.want || ok != tt.ok {
+			t.Errorf("applyMask(%q, %v) = %q, %v; want %q, %v", tt.mask, tt.v, got, ok, tt.want, tt.ok)
+		}
+	}
+}
+
+// Integers keep every digit; zero-padded and time formats are flagged.
+func TestXLSXNumberFormats(t *testing.T) {
+	data := newBook(t, func(f *excelize.File) {
+		must(t, f.SetCellValue("Sheet1", "A1", int64(4111111111111111)))
+		zip, _ := f.NewStyle(&excelize.Style{CustomNumFmt: ptr("00000")})
+		must(t, f.SetCellValue("Sheet1", "B1", 2134))
+		must(t, f.SetCellStyle("Sheet1", "B1", "B1", zip))
+		clock, _ := f.NewStyle(&excelize.Style{CustomNumFmt: ptr("h:mm AM/PM")})
+		must(t, f.SetCellValue("Sheet1", "C1", 0.375))
+		must(t, f.SetCellStyle("Sheet1", "C1", "C1", clock))
+		pct, _ := f.NewStyle(&excelize.Style{NumFmt: 9})
+		must(t, f.SetCellValue("Sheet1", "D1", 0.12))
+		must(t, f.SetCellStyle("Sheet1", "D1", "D1", pct))
+	})
+	g := readXLSX(t, data, Options{})[0]
+	if c := cellAt(t, g, "A1"); c.Raw != "4111111111111111" || c.Num == nil {
+		t.Errorf("A1 = %+v, want every digit kept", c)
+	}
+	if c := cellAt(t, g, "B1"); c.Kind != grid.String || c.Raw != "02134" || c.Mask != "00000" || c.Num != nil {
+		t.Errorf("B1 = %+v, want text 02134", c)
+	}
+	if c := cellAt(t, g, "C1"); c.TimeFmt != "clock" || c.DateFmt || c.Num == nil {
+		t.Errorf("C1 = %+v, want a clock time", c)
+	}
+	if c := cellAt(t, g, "D1"); !c.PctFmt || c.Num == nil || *c.Num != 0.12 {
+		t.Errorf("D1 = %+v, want a percent-formatted 0.12", c)
 	}
 }
 
@@ -612,7 +668,7 @@ func TestXLSXStyleCache(t *testing.T) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	must(t, err)
 	defer f.Close()
-	x := &xlsxReader{f: f, styles: map[int]numFmt{}}
+	x := &xlsxReader{f: f, styles: map[int]cellStyle{}}
 	g, err := x.sheet("Sheet1")
 	must(t, err)
 	if len(x.styles) != 3 { // default, date, money

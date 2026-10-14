@@ -288,3 +288,21 @@ func TestTimes100(t *testing.T) {
 		}
 	}
 }
+
+func TestParseNumberDecimalComma(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"1.234,56", "1234.56", true}, {"999,00", "999.00", true}, {"12,5", "12.5", true},
+		{"1.250", "1250", true}, {"-3,25", "-3.25", true}, {"€ 1.000,00", "1000.00", true},
+		{"(1.234,5)", "-1234.5", true}, {"12,5%", "12.5", true}, {"1,2,3", "", false}, {"abc", "", false},
+	}
+	for _, tt := range tests {
+		n, ok := ParseNumberDecimalComma(tt.in)
+		if ok != tt.ok || (ok && string(n.Text) != tt.want) {
+			t.Errorf("ParseNumberDecimalComma(%q) = %q, %v; want %q, %v", tt.in, n.Text, ok, tt.want, tt.ok)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql" // registers "mysql"
 	"github.com/jackc/pgx/v5"
@@ -130,11 +131,20 @@ func Load(ctx context.Context, dialect, connString string, plans []*plan.Plan, o
 				}
 			}
 		}
+		var created []string
 		for _, p := range plans {
 			n, err := loadMySQL(ctx, db, p, opts)
 			if err != nil {
+				if mode == IfExistsFail && len(created) > 0 {
+					// MySQL DDL commits at once; undo the tables this load created.
+					for _, t := range created {
+						mysqlDrop(ctx, db, opts.Schema, t)
+					}
+					return nil, fmt.Errorf("%w (dropped %s, which this load had already created)", err, strings.Join(created, ", "))
+				}
 				return results, err
 			}
+			created = append(created, p.Table)
 			results = append(results, LoadResult{Table: resultName(opts.Schema, p.Table), Rows: n})
 		}
 	}
@@ -203,6 +213,15 @@ func loadPostgres(ctx context.Context, tx pgx.Tx, p *plan.Plan, opts LoadOptions
 	if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", QualifiedTable(d, opts.Schema, p.Table)).Scan(&exists); err != nil {
 		return 0, fmt.Errorf("emit: check table %s: %w", resultName(opts.Schema, p.Table), err)
 	}
+	if mode, _ := ifExistsMode(opts.IfExists); exists && mode == IfExistsAppend {
+		cols, err := pgColumns(ctx, tx, opts.Schema, p.Table)
+		if err != nil {
+			return 0, fmt.Errorf("emit: read columns of %s: %w", resultName(opts.Schema, p.Table), err)
+		}
+		if err := checkAppend(cols, p, resultName(opts.Schema, p.Table)); err != nil {
+			return 0, err
+		}
+	}
 	if err := prepareTable(ctx, d, exists, p, opts, func(q string) error {
 		_, err := tx.Exec(ctx, q)
 		return err
@@ -254,6 +273,7 @@ func pgValue(v any) (any, error) {
 // sqlDB is the subset of *sql.DB and *sql.Tx the SQL loaders use.
 type sqlDB interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
@@ -295,6 +315,9 @@ func loadMySQL(ctx context.Context, db *sql.DB, p *plan.Plan, opts LoadOptions) 
 		return 0, err
 	}
 	defer conn.Close()
+	if err := mysqlStrict(ctx, conn); err != nil {
+		return 0, err
+	}
 	exists, err := mysqlTableExists(ctx, conn, opts.Schema, p.Table)
 	if err != nil {
 		return 0, err
@@ -303,9 +326,16 @@ func loadMySQL(ctx context.Context, db *sql.DB, p *plan.Plan, opts LoadOptions) 
 	case exists && mode == IfExistsFail:
 		return 0, existsError(opts.Schema, p.Table)
 	case exists && mode == IfExistsAppend:
+		cols, err := mysqlColumns(ctx, conn, opts.Schema, p.Table)
+		if err != nil {
+			return 0, fmt.Errorf("emit: read columns of %s: %w", resultName(opts.Schema, p.Table), err)
+		}
+		if err := checkAppend(cols, p, resultName(opts.Schema, p.Table)); err != nil {
+			return 0, err
+		}
 		return mysqlInsert(ctx, conn, p, opts)
 	case exists && mode == IfExistsReplace:
-		return mysqlReplace(ctx, conn, p, opts)
+		return mysqlReplace(ctx, db, conn, p, opts)
 	}
 	if err := mysqlCreate(ctx, conn, p, opts); err != nil {
 		return 0, err
@@ -313,15 +343,44 @@ func loadMySQL(ctx context.Context, db *sql.DB, p *plan.Plan, opts LoadOptions) 
 	n, err := mysqlInsert(ctx, conn, p, opts)
 	if err != nil {
 		// The table is ours: do not leave it behind empty.
-		mysqlDrop(ctx, conn, opts.Schema, p.Table)
+		mysqlDrop(ctx, db, opts.Schema, p.Table)
 		return 0, err
 	}
 	return n, nil
 }
 
+// mysqlStrict makes the load session strict, so a value that does not fit
+// fails instead of being truncated or rounded with a warning, and turns off
+// NO_BACKSLASH_ESCAPES, which kempt's quoted comments do not expect.
+func mysqlStrict(ctx context.Context, conn *sql.Conn) error {
+	var mode string
+	if err := conn.QueryRowContext(ctx, "SELECT @@SESSION.sql_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("emit: read sql_mode: %w", err)
+	}
+	var parts []string
+	strict := false
+	for _, m := range strings.Split(mode, ",") {
+		switch m = strings.TrimSpace(m); m {
+		case "", "NO_BACKSLASH_ESCAPES":
+		case "STRICT_ALL_TABLES":
+			strict = true
+			parts = append(parts, m)
+		default:
+			parts = append(parts, m)
+		}
+	}
+	if !strict {
+		parts = append(parts, "STRICT_ALL_TABLES")
+	}
+	if _, err := conn.ExecContext(ctx, "SET SESSION sql_mode = ?", strings.Join(parts, ",")); err != nil {
+		return fmt.Errorf("emit: set sql_mode: %w", err)
+	}
+	return nil
+}
+
 // mysqlReplace loads p into a new table and swaps it for the existing one
 // with a single RENAME TABLE, so a failed load leaves the old table intact.
-func mysqlReplace(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOptions) (int64, error) {
+func mysqlReplace(ctx context.Context, db *sql.DB, conn *sql.Conn, p *plan.Plan, opts LoadOptions) (int64, error) {
 	var suffix [4]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return 0, err
@@ -334,12 +393,12 @@ func mysqlReplace(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOp
 	}
 	n, err := mysqlInsert(ctx, conn, &staged, opts)
 	if err != nil {
-		mysqlDrop(ctx, conn, opts.Schema, staged.Table)
+		mysqlDrop(ctx, db, opts.Schema, staged.Table)
 		return 0, fmt.Errorf("emit: replace %s: %w", name, err)
 	}
 	qt := func(t string) string { return QualifiedTable(infer.MySQL, opts.Schema, t) }
 	if _, err := conn.ExecContext(ctx, "RENAME TABLE "+qt(p.Table)+" TO "+qt(old)+", "+qt(staged.Table)+" TO "+qt(p.Table)); err != nil {
-		mysqlDrop(ctx, conn, opts.Schema, staged.Table)
+		mysqlDrop(ctx, db, opts.Schema, staged.Table)
 		return 0, fmt.Errorf("emit: replace %s: %w", name, err)
 	}
 	if _, err := conn.ExecContext(ctx, "DROP TABLE "+qt(old)); err != nil {
@@ -379,8 +438,12 @@ func mysqlInsert(ctx context.Context, conn *sql.Conn, p *plan.Plan, opts LoadOpt
 	return n, tx.Commit()
 }
 
-func mysqlDrop(ctx context.Context, conn *sql.Conn, schema, table string) {
-	_, _ = conn.ExecContext(context.WithoutCancel(ctx), "DROP TABLE IF EXISTS "+QualifiedTable(infer.MySQL, schema, table))
+// mysqlDrop removes a table kempt created, on a fresh connection: after a
+// cancelled load (Ctrl-C) the driver has already closed the one in use.
+func mysqlDrop(ctx context.Context, db *sql.DB, schema, table string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+	defer cancel()
+	_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS "+QualifiedTable(infer.MySQL, schema, table))
 }
 
 // mysqlTableExists reports whether schema.table (or table in the current

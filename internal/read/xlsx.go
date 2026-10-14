@@ -39,7 +39,7 @@ func XLSX(r io.Reader, opts Options) ([]*grid.Grid, error) {
 	if p, err := f.GetWorkbookProps(); err == nil && p.Date1904 != nil {
 		date1904 = *p.Date1904
 	}
-	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, styles: map[int]numFmt{}}
+	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, styles: map[int]cellStyle{}}
 	grids := make([]*grid.Grid, 0, len(names))
 	for _, name := range names {
 		g, err := x.sheet(name)
@@ -101,7 +101,7 @@ type xlsxReader struct {
 	f        *excelize.File
 	maxRows  int
 	maxCells int64
-	styles   map[int]numFmt // style id → kind of number format
+	styles   map[int]cellStyle // style id → classified number format
 }
 
 // rawRow is one row as excelize reads it: its width (gaps padded with "")
@@ -369,7 +369,7 @@ func (x *xlsxReader) cell(sheet string, r, c int, raw string) (grid.Cell, error)
 			if err != nil {
 				return grid.Cell{}, err
 			}
-			if n.Raw == raw {
+			if n.Num != nil && formatNumber(*n.Num) == raw {
 				cell = n
 			}
 		}
@@ -465,6 +465,38 @@ func cellError(sheet, ref string, err error) error {
 // trailing fractional zeros, i.e. exactly as a float would be printed.
 var plainNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$`)
 
+// plainInteger matches an integer written without sign tricks or leading zeros.
+var plainInteger = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+
+// zeroMask matches number formats that only pad with zeros, such as the
+// ZIP Code ("00000"), ZIP+4 ("00000-0000") and fixed-width ID formats.
+var zeroMask = regexp.MustCompile(`^0{2,}([-. ]0+)*$`)
+
+// applyMask renders a non-negative integer through a zero-padding mask:
+// ("00000", 2134) → "02134", ("00000-0000", 21341234) → "02134-1234".
+func applyMask(mask string, v float64) (string, bool) {
+	if v < 0 || v != float64(int64(v)) {
+		return "", false
+	}
+	digits := strings.Count(mask, "0")
+	s := strconv.FormatInt(int64(v), 10)
+	if len(s) > digits {
+		return "", false
+	}
+	s = strings.Repeat("0", digits-len(s)) + s
+	var b strings.Builder
+	i := 0
+	for _, r := range mask {
+		if r == '0' {
+			b.WriteByte(s[i])
+			i++
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), true
+}
+
 func boolCell(raw string) grid.Cell {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true":
@@ -482,16 +514,28 @@ func (x *xlsxReader) number(sheet, ref, raw string) (grid.Cell, error) {
 	if err != nil || math.IsInf(v, 0) || math.IsNaN(v) {
 		return grid.Cell{Kind: grid.String, Raw: raw}, nil
 	}
-	cell := grid.Cell{Kind: grid.Number, Raw: formatNumber(v), Num: &v}
-	kind, err := x.style(sheet, ref)
+	text := formatNumber(v)
+	if t := strings.TrimSpace(raw); plainInteger.MatchString(t) {
+		text = t // integers keep every digit (card numbers, long IDs); Excel shows only 15
+	}
+	cell := grid.Cell{Kind: grid.Number, Raw: text, Num: &v}
+	st, err := x.style(sheet, ref)
 	if err != nil {
 		return grid.Cell{}, err
 	}
-	switch kind {
+	switch st.kind {
 	case fmtDate:
 		cell.Kind, cell.DateFmt = grid.Date, true
 	case fmtPct:
 		cell.PctFmt = true
+	case fmtClock:
+		cell.TimeFmt = "clock"
+	case fmtElapsed:
+		cell.TimeFmt = "elapsed"
+	case fmtZeroPad:
+		if padded, ok := applyMask(st.code, v); ok {
+			return grid.Cell{Kind: grid.String, Raw: padded, Mask: st.code}, nil
+		}
 	}
 	return cell, nil
 }
@@ -500,26 +544,35 @@ func (x *xlsxReader) number(sheet, ref, raw string) (grid.Cell, error) {
 type numFmt uint8
 
 const (
-	fmtPlain numFmt = iota
-	fmtDate         // shows a calendar date (possibly with a time)
-	fmtPct          // shows a percentage
+	fmtPlain   numFmt = iota
+	fmtDate           // shows a calendar date (possibly with a time)
+	fmtPct            // shows a percentage
+	fmtClock          // shows only a time of day (h:mm)
+	fmtElapsed        // shows elapsed time ([h]:mm)
+	fmtZeroPad        // pads integers with zeros (00000, 00000-0000)
 )
 
+// cellStyle is a classified number format.
+type cellStyle struct {
+	kind numFmt
+	code string // the custom format code, if any
+}
+
 // style classifies the cell's number format. Results are cached per style id.
-func (x *xlsxReader) style(sheet, ref string) (numFmt, error) {
+func (x *xlsxReader) style(sheet, ref string) (cellStyle, error) {
 	id, err := x.f.GetCellStyle(sheet, ref)
 	if err != nil {
-		return fmtPlain, cellError(sheet, ref, err)
+		return cellStyle{}, cellError(sheet, ref, err)
 	}
 	if v, ok := x.styles[id]; ok {
 		return v, nil
 	}
-	v := fmtPlain
+	var v cellStyle
 	if st, err := x.f.GetStyle(id); err == nil && st != nil {
 		if st.CustomNumFmt != nil {
-			v = formatKind(*st.CustomNumFmt)
+			v = cellStyle{formatKind(*st.CustomNumFmt), *st.CustomNumFmt}
 		} else {
-			v = builtinKind(st.NumFmt)
+			v = cellStyle{kind: builtinKind(st.NumFmt)}
 		}
 	}
 	x.styles[id] = v
@@ -535,6 +588,10 @@ func builtinKind(id int) numFmt {
 	case 14 <= id && id <= 17, id == 22, 27 <= id && id <= 31, id == 36,
 		50 <= id && id <= 54, 57 <= id && id <= 58, 71 <= id && id <= 74, id == 77, id == 81:
 		return fmtDate
+	case id == 46 || id == 79:
+		return fmtElapsed
+	case 18 <= id && id <= 21, 32 <= id && id <= 35, id == 45, id == 47, id == 55, id == 56, id == 75, id == 76, id == 78, id == 80:
+		return fmtClock
 	}
 	return fmtPlain
 }
@@ -553,8 +610,11 @@ func isDateFormat(code string) bool { return formatKind(code) == fmtDate }
 // an unquoted "%" and no date tokens is a percentage.
 func formatKind(code string) numFmt {
 	s := strings.ToLower(code)
+	if first, _, _ := strings.Cut(s, ";"); zeroMask.MatchString(first) {
+		return fmtZeroPad
+	}
 	var toks []byte
-	pct := false
+	pct, elapsed := false, false
 	for i := 0; i < len(s); i++ {
 		switch c := s[i]; c {
 		case '"':
@@ -572,6 +632,7 @@ func formatKind(code string) numFmt {
 			}
 			if isElapsed(s[i+1 : i+1+j]) {
 				toks = append(toks, 'h')
+				elapsed = true
 			}
 			i += j + 1
 		case '%':
@@ -606,7 +667,12 @@ func formatKind(code string) numFmt {
 			}
 		}
 	}
-	if pct {
+	switch {
+	case elapsed:
+		return fmtElapsed
+	case len(toks) > 0:
+		return fmtClock
+	case pct:
 		return fmtPct
 	}
 	return fmtPlain
