@@ -19,13 +19,14 @@ var foldLetters = map[rune]string{
 var symbolWords = map[rune]string{'%': " pct ", '#': " num ", '&': " and "}
 
 // SnakeCase turns header text into a lowercase snake_case SQL identifier:
-// accents are transliterated, "%", "#", and "&" become words, camelCase
-// boundaries are split, and every other run of characters outside [a-z0-9]
-// becomes one "_". Names that start with a digit get a "c_" prefix. The
-// result may be "" when s has no usable characters.
+// accents and compatibility forms ("ﬁ", "²") are transliterated, "%", "#",
+// and "&" become words, camelCase boundaries are split, and every other run
+// of characters outside [a-z0-9] becomes one "_". Names that start with a
+// digit get a "c_" prefix. The result may be "" when s has no usable
+// characters.
 func SnakeCase(s string) string {
 	var ascii []rune
-	for _, r := range norm.NFD.String(s) {
+	for _, r := range norm.NFKD.String(s) {
 		switch {
 		case unicode.Is(unicode.Mn, r):
 		case foldLetters[r] != "":

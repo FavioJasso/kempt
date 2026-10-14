@@ -1,6 +1,8 @@
 package infer
 
 import (
+	"math"
+	"math/rand"
 	"reflect"
 	"strconv"
 	"strings"
@@ -29,6 +31,8 @@ func boolean(v bool) *grid.Cell {
 	}
 	return &grid.Cell{Kind: grid.Bool, Raw: "FALSE"}
 }
+
+func ptr(f float64) *float64 { return &f }
 
 func excelErr(raw string) *grid.Cell { return &grid.Cell{Kind: grid.Error, Raw: raw} }
 
@@ -150,9 +154,49 @@ func TestColumn(t *testing.T) {
 			values: []any{normalize.Decimal("1.50"), normalize.Decimal("-1234.5"), normalize.Decimal("0.125"), normalize.Decimal("899")},
 		},
 		{
-			name: "decimal precision capped at 38",
-			in:   col("Wide", str(strings.Repeat("9", 30)+".5"), str("0."+strings.Repeat("1", 20))),
+			name: "decimal precision capped at 38 when only trailing zeros round",
+			in:   col("Wide", str(strings.Repeat("9", 30)+".5"), str("0.1"+strings.Repeat("0", 19))),
 			typ:  Type{Base: Decimal, Precision: 38, Scale: 8},
+		},
+		{
+			name:   "decimal cap that would round digits keeps text",
+			in:     col("Wide", str(strings.Repeat("9", 30)+".5"), str("0."+strings.Repeat("1", 20))),
+			typ:    Type{Base: Text, MaxLen: 32},
+			values: []any{strings.Repeat("9", 30) + ".5", "0." + strings.Repeat("1", 20)},
+			decs: []dec{{grid.KTypeWidened, "Data!C3", 0.6,
+				[]string{"Kept column wide as TEXT", "up to 30 integer digits and up to 20 decimal places", "NUMERIC(38,8) would round C3"}}},
+		},
+		{
+			name:   "decimal cap under lenient keeps every value as text",
+			in:     col("Wide", str(strings.Repeat("9", 30)+".5"), str("0."+strings.Repeat("1", 20)), str("x")),
+			opts:   Options{Lenient: 0.5},
+			typ:    Type{Base: Text, MaxLen: 32},
+			values: []any{strings.Repeat("9", 30) + ".5", "0." + strings.Repeat("1", 20), "x"},
+			decs:   []dec{{grid.KTypeWidened, "Data!C3", 0.6, []string{"NUMERIC(38,8) would round C3"}}},
+		},
+		{
+			name:   "more than 38 digits stays text",
+			in:     col("Huge", str("1"), str(strings.Repeat("9", 39))),
+			typ:    Type{Base: Text, MaxLen: 39},
+			values: []any{"1", strings.Repeat("9", 39)},
+		},
+		{
+			name:   "int64 boundary",
+			in:     col("Big", str("9223372036854775807"), str("-9223372036854775808")),
+			typ:    Type{Base: BigInt},
+			values: []any{int64(9223372036854775807), int64(-9223372036854775808)},
+		},
+		{
+			name:   "one past int64 is decimal(19,0)",
+			in:     col("Big", str("9223372036854775808"), str("1")),
+			typ:    Type{Base: Decimal, Precision: 19},
+			values: []any{normalize.Decimal("9223372036854775808"), normalize.Decimal("1")},
+		},
+		{
+			name:   "int32 boundary",
+			in:     col("N", str("2147483647"), str("-2147483648")),
+			typ:    Type{Base: Int},
+			values: []any{int64(2147483647), int64(-2147483648)},
 		},
 		{
 			name:   "zip codes with leading zeros stay text",
@@ -410,6 +454,137 @@ func TestColumn(t *testing.T) {
 			nulls:  []int{0, 2},
 			decs:   []dec{{grid.KNullToken, "Data!C5:C13", 0.95, []string{`C5 ("N/A"), C13 ("-")`}}},
 		},
+		{
+			name:   "dashes alone are null tokens, signed numbers are not",
+			in:     col("Delta", strs("-", "–", "—", "-5", "−7", "8-", " \u00a03\u00a0")...),
+			typ:    Type{Base: Int},
+			values: []any{nil, nil, nil, int64(-5), int64(-7), int64(-8), int64(3)},
+			nulls:  []int{0, 1, 2},
+			decs: []dec{
+				{grid.KNullToken, "Data!C2:C4", 0.95, []string{`C2 ("-"), C3 ("–"), C4 ("—")`}},
+				{grid.KAccountingNeg, "Data!C7", 0.95, []string{`C7 ("8-" → -8)`}},
+			},
+		},
+		{
+			name:   "bare symbols are text, not numbers or nulls",
+			in:     col("Amount", strs("$5", "$-", "()", "%", "$6")...),
+			typ:    Type{Base: Text, MaxLen: 2},
+			values: []any{"$5", "$-", "()", "%", "$6"},
+		},
+		{
+			name:   "percent column with one N/A",
+			in:     col("Rate", strs("12%", "5.5%", "N/A", "7 %")...),
+			typ:    Type{Base: Decimal, Precision: 3, Scale: 1},
+			values: []any{normalize.Decimal("12"), normalize.Decimal("5.5"), nil, normalize.Decimal("7")},
+			unit:   "%",
+			pct:    true,
+			nulls:  []int{2},
+			decs: []dec{
+				{grid.KPercent, "Data!C2:C5", 0.9, []string{"Every value in column rate carried a % sign", `C5 ("7 %" → 7)`}},
+				{grid.KNullToken, "Data!C4", 0.95, []string{`C4 ("N/A")`}},
+			},
+		},
+		{
+			name:   "TRUE and FALSE text cells are bools",
+			in:     col("Active", strs("TRUE", "FALSE", "true", " False ")...),
+			typ:    Type{Base: Bool},
+			values: []any{true, false, true, false},
+		},
+		{
+			name:   "0 and 1 number cells are ints, not bools",
+			in:     col("Flag", num(0), num(1), num(1), num(0)),
+			typ:    Type{Base: Int},
+			values: []any{int64(0), int64(1), int64(1), int64(0)},
+		},
+		{
+			name:   "invalid calendar dates stay text",
+			in:     col("Due Date", strs("02/29/2025", "13/13/2026", "2026-02-30", "03/01/2026")...),
+			typ:    Type{Base: Text, MaxLen: 10},
+			values: []any{"02/29/2025", "13/13/2026", "2026-02-30", "03/01/2026"},
+		},
+		{
+			name:   "leap day is a date",
+			in:     col("Due Date", strs("02/29/2024", "03/01/2024")...),
+			typ:    Type{Base: Date},
+			values: []any{date(2024, time.February, 29), date(2024, time.March, 1)},
+			decs: []dec{
+				{grid.KDateOrder, "Data!C2:C3", 0.9, []string{`C2 ("02/29/2024") only makes sense that way`}},
+				{grid.KDateParse, "Data!C2:C3", 0.9, []string{"MM/DD/YYYY (2)"}},
+			},
+		},
+		{
+			name:   "two-digit year pivot",
+			in:     col("Born", strs("1/2/68", "1/2/69", "15-Mar-00", "15-Mar-99")...),
+			typ:    Type{Base: Date},
+			values: []any{date(2068, time.January, 2), date(1969, time.January, 2), date(2000, time.March, 15), date(1999, time.March, 15)},
+			decs: []dec{
+				{grid.KDateOrder, "Data!C2:C3", 0.5, []string{"--date-order dmy"}},
+				{grid.KDateParse, "Data!C2:C5", 0.9, []string{"M/D/YY (2)", "D-Mon-YY (2)"}},
+			},
+		},
+		{
+			name:   "Excel's fictitious 1900-02-29 (serial 60) is kept as text",
+			in:     col("Start", serial(60), serial(61), serial(59)),
+			typ:    Type{Base: Text, MaxLen: 10},
+			values: []any{"60", "1900-03-01", "1900-02-28"},
+		},
+		{
+			name:   "timestamps keep fractional seconds",
+			in:     col("Logged", strs("2026-03-15 10:30:00.25", "2026-03-15T10:30:00Z")...),
+			typ:    Type{Base: Timestamp},
+			values: []any{normalize.NewTimestamp(time.Date(2026, 3, 15, 10, 30, 0, 250000000, time.UTC)), stamp(2026, time.March, 15, 10, 30)},
+			decs:   []dec{{grid.KDateParse, "Data!C2:C3", 0.9, []string{"YYYY-MM-DD HH:MM:SS.FF (1)", "YYYY-MM-DDTHH:MM:SSZ (1)"}}},
+		},
+		{
+			name:   "lenient picks the narrowest base when int and decimal rates tie",
+			in:     col("Units", strs("1", "2", "3", "4", "x")...),
+			opts:   Options{Lenient: 0.8},
+			typ:    Type{Base: Int},
+			values: []any{int64(1), int64(2), int64(3), int64(4), nil},
+			nulls:  []int{4},
+			decs:   []dec{{grid.KCastFailNull, "Data!C6", 0.8, []string{"Cast column units to int", `C6 ("x")`}}},
+		},
+		{
+			name:   "lenient prefers the base that parses more values",
+			in:     col("Units", strs("1", "2", "3.5", "4", "x")...),
+			opts:   Options{Lenient: 0.8},
+			typ:    Type{Base: Decimal, Precision: 2, Scale: 1},
+			values: []any{normalize.Decimal("1"), normalize.Decimal("2"), normalize.Decimal("3.5"), normalize.Decimal("4"), nil},
+			nulls:  []int{4},
+			decs:   []dec{{grid.KCastFailNull, "Data!C6", 0.8, []string{"Cast column units to decimal"}}},
+		},
+		{
+			name:   "invisible-only cells become NULL with a decision",
+			in:     col("Note", str("\u200b"), str("a"), str(" \ufeff ")),
+			typ:    Type{Base: Text, MaxLen: 1},
+			values: []any{nil, "a", nil},
+			nulls:  []int{0, 2},
+			decs:   []dec{{grid.KTrimWhitespace, "Data!C2:C4", 1, []string{"Read 2 values in column note as NULL", "invisible characters"}}},
+		},
+		{
+			name:   "non-finite number cells keep their text",
+			in:     col("Ratio", &grid.Cell{Kind: grid.Number, Raw: "NaN", Num: ptr(math.NaN())}, num(1)),
+			typ:    Type{Base: Text, MaxLen: 3},
+			values: []any{"NaN", "1"},
+		},
+		{
+			name:   "bare exponent codes stay text",
+			in:     col("Part", strs("1E5", "2E3", "3e1")...),
+			typ:    Type{Base: Text, MaxLen: 3},
+			values: []any{"1E5", "2E3", "3e1"},
+		},
+		{
+			name:   "scientific notation with a sign or a point is numeric",
+			in:     col("Reading", strs("1.5E+03", "1E+05", "2.5e-1", "1.0E3")...),
+			typ:    Type{Base: Decimal, Precision: 8, Scale: 2},
+			values: []any{normalize.Decimal("1500"), normalize.Decimal("100000"), normalize.Decimal("0.25"), normalize.Decimal("1000")},
+		},
+		{
+			name:   "xlsx ISO date cells in a text column render as ISO dates",
+			in:     col("When", &grid.Cell{Kind: grid.Date, Raw: "2026-03-15T00:00:00Z", DateFmt: true}, &grid.Cell{Kind: grid.Date, Raw: "2026-03-15T10:30:00Z", DateFmt: true}, str("TBD")),
+			typ:    Type{Base: Text, MaxLen: 19},
+			values: []any{"2026-03-15", "2026-03-15 10:30:00", "TBD"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -489,6 +664,59 @@ func TestColumnSQLTypes(t *testing.T) {
 		for dialect, want := range tc.want {
 			if got := typ.SQL(dialect); got != want {
 				t.Errorf("%s: %s.SQL(%s) = %q, want %q", tc.in.Header, typ, dialect, got, want)
+			}
+		}
+	}
+}
+
+// TestColumnNeverDropsSilently checks, over random columns of messy values,
+// that every non-empty cell either keeps a value or is flagged in Nulls and
+// covered by a decision range.
+func TestColumnNeverDropsSilently(t *testing.T) {
+	pool := []*grid.Cell{
+		str("-"), str("–"), str("—"), str("$-"), str("()"), str("%"), str("N/A"), str("#DIV/0!"), excelErr("#REF!"),
+		str("12"), str("12%"), str("(1,234)"), str("500-"), str("$1,200.50"), str("0.5"), str("007"), str("1E5"),
+		str("3000000000"), str(strings.Repeat("9", 30) + ".5"), str("0." + strings.Repeat("1", 20)), str(strings.Repeat("9", 40)),
+		str("03/04/2026"), str("15/03/2026"), str("03/15/2026"), str("02/29/2025"), str("Mar 15, 2026"), str("2026-03-15 10:30:00.5"),
+		str("yes"), str("F"), str("TRUE"), str("see note"), str("\u200b"), str(" x "), boolean(true),
+		num(1), num(0), num(45000), num(45000.5), num(-3.25), serial(45000), serial(60), serial(45000.25),
+		{Kind: grid.Number, Raw: "", Num: ptr(7)}, {Kind: grid.Number, Raw: "Inf", Num: ptr(math.Inf(1))}, nil, str(""),
+	}
+	headers := []string{"Amount", "Order Date", "Code"}
+	opts := []Options{{}, {Lenient: 0.5}, {Lenient: 0.8}, {DateOrder: "dmy"}, {Date1904: true}}
+	r := rand.New(rand.NewSource(7))
+	for iter := range 3000 {
+		cells := make([]*grid.Cell, 1+r.Intn(8))
+		for i := range cells {
+			cells[i] = pool[r.Intn(len(pool))]
+		}
+		in := col(headers[iter%len(headers)], cells...)
+		got := Column(in, opts[iter%len(opts)])
+		for i, cell := range cells {
+			if cell.IsEmpty() {
+				if got.Values[i] != nil || got.Nulls[i] {
+					t.Fatalf("empty cell %d: value %v, null %v", i, got.Values[i], got.Nulls[i])
+				}
+				continue
+			}
+			if got.Values[i] != nil {
+				if got.Nulls[i] {
+					t.Fatalf("cell %d (%q) has a value and a NULL flag", i, cell.Raw)
+				}
+				continue
+			}
+			if !got.Nulls[i] {
+				t.Fatalf("cell %d (%q) became NULL without a Nulls flag: %+v", i, cell.Raw, got)
+			}
+			covered := false
+			for _, d := range got.Decisions {
+				rng, err := grid.ParseRange(d.Range)
+				if err == nil && rng.Contains(in.Rows[i], in.Col) {
+					covered = true
+				}
+			}
+			if !covered {
+				t.Fatalf("cell %d (%q) became NULL without a decision:\n%s", i, cell.Raw, dump(got.Decisions))
 			}
 		}
 	}

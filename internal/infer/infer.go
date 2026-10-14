@@ -98,6 +98,7 @@ type column struct {
 	es     []*entry
 	tokens []int // null placeholders
 	errs   []int // Excel error values
+	blanks []int // non-empty cells holding only invisible characters
 	hint   bool  // numeric cells are serial dates because of the header
 	ord    dateOrder
 }
@@ -126,7 +127,7 @@ func (c *column) classify() {
 			continue
 		}
 		e := &entry{i: i, cell: cell, text: trim(cell.Raw)}
-		if cell.Num != nil {
+		if cell.Num != nil && !math.IsNaN(*cell.Num) && !math.IsInf(*cell.Num, 0) {
 			e.src = srcSerial
 			if !cell.DateFmt {
 				e.src = srcNumber
@@ -148,6 +149,9 @@ func (c *column) classify() {
 			c.res.Nulls[i] = true
 		case nk == normalize.NotNull:
 			c.es = append(c.es, e)
+		default: // zero-width spaces or byte-order marks only
+			c.blanks = append(c.blanks, i)
+			c.res.Nulls[i] = true
 		}
 	}
 	c.hint = numbers > 0 && plausible && normalize.DateHint(c.in.Header)
@@ -206,7 +210,7 @@ func (c *column) parse(e *entry) {
 			return
 		}
 		e.b, e.ok[Bool] = normalize.ParseBool(e.text)
-		if !e.cell.DateFmt {
+		if !e.cell.DateFmt && !bareExponent(e.text) {
 			if n, ok := normalize.ParseNumber(e.text); ok {
 				e.num = n
 				e.numeric()
@@ -236,6 +240,19 @@ func (e *entry) numeric() {
 		e.ok[Int] = v >= math.MinInt32 && v <= math.MaxInt32
 	}
 	e.ok[Decimal] = e.num.IntDigits+e.num.Scale <= MaxPrecision
+}
+
+// bareExponent reports whether text uses exponent notation with neither a
+// decimal point nor an exponent sign ("1E5", "12e3"). Spreadsheets and
+// programs always write one of the two ("1E+05", "1.5e3"), so such text
+// reads as a code and stays text instead of silently becoming 100000.
+func bareExponent(s string) bool {
+	i := strings.IndexAny(s, "eE")
+	if i < 0 || strings.Contains(s[:i], ".") {
+		return false
+	}
+	exp := s[i+1:]
+	return exp == "" || (exp[0] != '+' && exp[0] != '-')
 }
 
 func boolCell(s string) (v, ok bool) {
@@ -274,6 +291,14 @@ func (c *column) choose() {
 		widened = best > 0 && total >= 5 && 5*best >= 4*total
 	}
 
+	var rounded []int
+	maxInt, maxScale := 0, 0
+	if base == Decimal {
+		if rounded, maxInt, maxScale = c.capRounds(); len(rounded) > 0 {
+			base, lenient = Text, false
+		}
+	}
+
 	var cast, failed []*entry
 	for _, e := range c.es {
 		if base != Text && !e.ok[base] {
@@ -296,12 +321,22 @@ func (c *column) choose() {
 		c.add(grid.KExcelError, c.errs, 0.9, fmt.Sprintf("Read %s in column %s as NULL because %s: %s.",
 			count(n, "value"), c.name(), plural(n, "it is an Excel error value", "they are Excel error values"), c.examples(c.errs, false)))
 	}
+	if len(c.blanks) > 0 {
+		n := len(c.blanks)
+		c.add(grid.KTrimWhitespace, c.blanks, 1, fmt.Sprintf("Read %s in column %s as NULL because %s only invisible characters (zero-width spaces or byte-order marks): %s.",
+			count(n, "value"), c.name(), plural(n, "it holds", "they hold"), c.examples(c.blanks, false)))
+	}
 	if lenient {
 		idx := indices(failed)
 		c.add(grid.KCastFailNull, idx, float64(best)/float64(total), fmt.Sprintf(
 			"Cast column %s to %s because %d of %d values (%s) parse, meeting --lenient %s; %s that did not parse became NULL: %s.",
 			c.name(), base, best, total, percent(best, total), strconv.FormatFloat(c.opts.Lenient, 'f', -1, 64),
 			plural(len(idx), "the 1 value", fmt.Sprintf("the %d values", len(idx))), c.examples(idx, false)))
+	}
+	if len(rounded) > 0 {
+		c.add(grid.KTypeWidened, rounded, 0.6, fmt.Sprintf(
+			"Kept column %s as TEXT because its values need up to %d integer digits and up to %d decimal places, more than the %d digits a NUMERIC column holds; NUMERIC(%d,%d) would round %s.",
+			c.name(), maxInt, maxScale, MaxPrecision, MaxPrecision, MaxPrecision-maxInt, c.examples(rounded, false)))
 	}
 	if widened {
 		var idx []int
@@ -330,6 +365,30 @@ func (c *column) choose() {
 	}
 }
 
+// capRounds reports the decimal values that a precision-capped NUMERIC(38,s)
+// column would round, with the widest integer and fractional parts seen.
+// Digits beyond s that are all zeros are not a loss.
+func (c *column) capRounds() (idx []int, maxInt, maxScale int) {
+	for _, e := range c.es {
+		if e.ok[Decimal] {
+			maxInt, maxScale = max(maxInt, e.num.IntDigits), max(maxScale, e.num.Scale)
+		}
+	}
+	if maxInt+maxScale <= MaxPrecision {
+		return nil, maxInt, maxScale
+	}
+	scale := MaxPrecision - maxInt
+	for _, e := range c.es {
+		if !e.ok[Decimal] {
+			continue
+		}
+		if _, frac, _ := strings.Cut(string(e.num.Text), "."); len(frac) > scale && strings.Trim(frac[scale:], "0") != "" {
+			idx = append(idx, e.i)
+		}
+	}
+	return idx, maxInt, maxScale
+}
+
 // value casts e to base.
 func value(e *entry, base Base) any {
 	switch base {
@@ -351,9 +410,9 @@ func value(e *entry, base Base) any {
 			return "TRUE"
 		}
 		return "FALSE"
-	case e.src == srcSerial && e.ok[Date]:
+	case (e.src == srcSerial || e.cell.DateFmt) && e.ok[Date]:
 		return normalize.NewDate(e.t).String()
-	case e.src == srcSerial && e.ok[Timestamp]:
+	case (e.src == srcSerial || e.cell.DateFmt) && e.ok[Timestamp]:
 		return normalize.NewTimestamp(e.t).String()
 	}
 	return e.text
