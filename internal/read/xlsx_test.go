@@ -129,12 +129,12 @@ func TestIsDateFormat(t *testing.T) {
 		{"yyyy-mm-dd", true},
 		{"m/d/yy h:mm", true},
 		{"[$-409]mmm d, yyyy", true},
-		{"[h]:mm:ss", true},
-		{"[mm]:ss", true},
-		{"[ss].00", true},
-		{"mm:ss.0", true},
-		{"hh:mm AM/PM", true},
-		{"h:mm a/p", true},
+		{"[h]:mm:ss", false},
+		{"[mm]:ss", false},
+		{"[ss].00", false},
+		{"mm:ss.0", false},
+		{"hh:mm AM/PM", false},
+		{"h:mm a/p", false},
 		{"MMMM D, YYYY", true},
 		{"d-mmm-yy", true},
 		{"mmm-yy", true},
@@ -190,13 +190,44 @@ func TestIsBuiltinDateFormat(t *testing.T) {
 		want bool
 	}{
 		{0, false}, {1, false}, {2, false}, {4, false}, {9, false}, {10, false}, {13, false},
-		{14, true}, {15, true}, {17, true}, {18, true}, {21, true}, {22, true}, {23, false},
-		{27, true}, {36, true}, {37, false}, {44, false}, {45, true}, {46, true}, {47, true},
-		{48, false}, {49, false}, {50, true}, {58, true}, {59, false}, {71, true}, {81, true}, {164, false},
+		{14, true}, {15, true}, {17, true}, {18, false}, {21, false}, {22, true}, {23, false},
+		{27, true}, {32, false}, {35, false}, {36, true}, {37, false}, {44, false}, {45, false}, {46, false}, {47, false},
+		{48, false}, {49, false}, {50, true}, {55, false}, {58, true}, {59, false}, {71, true}, {75, false}, {81, true}, {164, false},
 	}
 	for _, tt := range tests {
 		if got := isBuiltinDateFormat(tt.id); got != tt.want {
 			t.Errorf("isBuiltinDateFormat(%d) = %v, want %v", tt.id, got, tt.want)
+		}
+	}
+}
+
+// Time-only and elapsed formats are not dates; "%" formats are percentages.
+func TestFormatKind(t *testing.T) {
+	tests := []struct {
+		code string
+		want numFmt
+	}{
+		{"h:mm AM/PM", fmtPlain},
+		{"[h]:mm", fmtPlain},
+		{"hh:mm:ss", fmtPlain},
+		{"m/d/yy h:mm", fmtDate},
+		{"yyyy-mm-dd hh:mm:ss", fmtDate},
+		{"mmm", fmtDate},
+		{"0%", fmtPct},
+		{"0.00%", fmtPct},
+		{`0.0" %"`, fmtPlain},
+		{`0.0\%`, fmtPlain},
+		{"#,##0", fmtPlain},
+		{"d/m/bb", fmtDate},
+	}
+	for _, tt := range tests {
+		if got := formatKind(tt.code); got != tt.want {
+			t.Errorf("formatKind(%q) = %v, want %v", tt.code, got, tt.want)
+		}
+	}
+	for id, want := range map[int]numFmt{9: fmtPct, 10: fmtPct, 14: fmtDate, 20: fmtPlain, 2: fmtPlain} {
+		if got := builtinKind(id); got != want {
+			t.Errorf("builtinKind(%d) = %v, want %v", id, got, want)
 		}
 	}
 }
@@ -581,11 +612,11 @@ func TestXLSXStyleCache(t *testing.T) {
 	f, err := excelize.OpenReader(bytes.NewReader(data))
 	must(t, err)
 	defer f.Close()
-	x := &xlsxReader{f: f, dateStyles: map[int]bool{}}
+	x := &xlsxReader{f: f, styles: map[int]numFmt{}}
 	g, err := x.sheet("Sheet1")
 	must(t, err)
-	if len(x.dateStyles) != 3 { // default, date, money
-		t.Errorf("cached %d style ids, want 3: %v", len(x.dateStyles), x.dateStyles)
+	if len(x.styles) != 3 { // default, date, money
+		t.Errorf("cached %d style ids, want 3: %v", len(x.styles), x.styles)
 	}
 	for r := 0; r < 50; r++ {
 		if a, b := g.At(r, 0), g.At(r, 1); a.Kind != grid.Date || !a.DateFmt || b.Kind != grid.Number || b.DateFmt {

@@ -238,11 +238,11 @@ func TestDateHint(t *testing.T) {
 		{"Month", true},
 		{"Period", true},
 		{"Fiscal period end", true},
-		{"Birthday", true},
+		{"Birthday", false}, {"Monthly Revenue", false}, {"Weekday Visitors", false}, {"Holiday Bonus", false}, {"InvoiceDate", true}, {"order_dt", true},
 		{"Amount", false},
 		{"Year", false},
 		{"Time", false},
-		{"Dt", false},
+		{"Dt", true},
 		{"Order ID", false},
 		{"", false},
 	}

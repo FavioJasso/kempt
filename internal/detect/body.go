@@ -284,6 +284,13 @@ func (s *sheet) totals(rg *Region, body []int, c1, c2 int, keep bool) {
 			continue
 		}
 		proof := s.sumProof(r, c1, c2, col, sinceLast, all, subtotals)
+		if proof == "" && !strong {
+			rg.Decisions = append(rg.Decisions, grid.NewDecision(grid.KKeepTotalRow, s.g.Sheet,
+				grid.RowRange(r, c1, c2), 0.4, fmt.Sprintf("Row %d has %s, which ends like a total label, but no number in it equals a sum of the rows above; kept as data.",
+					r+1, quote(label, 40))))
+			data(r)
+			continue
+		}
 		if proof == "" && len(lead) > 1 {
 			var others []string
 			for _, c := range lead {

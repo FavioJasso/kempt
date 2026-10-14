@@ -90,22 +90,27 @@ func TestLimiter(t *testing.T) {
 
 func TestClientIP(t *testing.T) {
 	tests := []struct {
-		remote, xff, want string
+		remote string
+		xff    []string
+		trust  bool
+		want   string
 	}{
-		{"10.0.0.1:5000", "", "10.0.0.1"},
-		{"10.0.0.1:5000", "203.0.113.9", "203.0.113.9"},
-		{"10.0.0.1:5000", "1.2.3.4, 203.0.113.9", "203.0.113.9"},
-		{"[::1]:80", "", "::1"},
-		{"bogus", "", "bogus"},
+		{"10.0.0.1:5000", nil, true, "10.0.0.1"},
+		{"10.0.0.1:5000", []string{"203.0.113.9"}, true, "203.0.113.9"},
+		{"10.0.0.1:5000", []string{"1.2.3.4, 203.0.113.9"}, true, "203.0.113.9"},
+		{"10.0.0.1:5000", []string{"6.6.6.6", "203.0.113.9"}, true, "203.0.113.9"}, // proxy added its own line
+		{"10.0.0.1:5000", []string{"203.0.113.9"}, false, "10.0.0.1"},              // not behind a proxy: ignore the header
+		{"[::1]:80", nil, false, "::1"},
+		{"bogus", nil, false, "bogus"},
 	}
 	for _, tt := range tests {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = tt.remote
-		if tt.xff != "" {
-			r.Header.Set("X-Forwarded-For", tt.xff)
+		for _, v := range tt.xff {
+			r.Header.Add("X-Forwarded-For", v)
 		}
-		if got := clientIP(r); got != tt.want {
-			t.Errorf("clientIP(%q, %q) = %q, want %q", tt.remote, tt.xff, got, tt.want)
+		if got := clientIP(r, tt.trust); got != tt.want {
+			t.Errorf("clientIP(%q, %q, trust=%v) = %q, want %q", tt.remote, tt.xff, tt.trust, got, tt.want)
 		}
 	}
 }

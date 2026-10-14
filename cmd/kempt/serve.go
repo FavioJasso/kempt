@@ -40,6 +40,9 @@ func serveCmd() *cobra.Command {
 				Version: version,
 				Logger:  log,
 				Secret:  []byte(os.Getenv("KEMPT_SECRET")),
+				// Railway (and any proxy set with KEMPT_TRUST_PROXY=1) puts the
+				// client address in X-Forwarded-For.
+				TrustProxy: envTrue(os.Getenv("KEMPT_TRUST_PROXY")) || os.Getenv("RAILWAY_PROJECT_ID") != "",
 			}
 			target, err := dsn.Resolve(dsnFlag, os.Getenv)
 			switch {

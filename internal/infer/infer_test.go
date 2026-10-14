@@ -1,6 +1,7 @@
 package infer
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"reflect"
@@ -480,7 +481,7 @@ func TestColumn(t *testing.T) {
 			pct:    true,
 			nulls:  []int{2},
 			decs: []dec{
-				{grid.KPercent, "Data!C2:C5", 0.9, []string{"Every value in column rate carried a % sign", `C5 ("7 %" → 7)`}},
+				{grid.KPercent, "Data!C2:C5", 0.9, []string{"Every value in column rate is a percentage", `C5 ("7 %" → 7)`}},
 				{grid.KNullToken, "Data!C4", 0.95, []string{`C4 ("N/A")`}},
 			},
 		},
@@ -719,5 +720,24 @@ func TestColumnNeverDropsSilently(t *testing.T) {
 				t.Fatalf("cell %d (%q) became NULL without a decision:\n%s", i, cell.Raw, dump(got.Decisions))
 			}
 		}
+	}
+}
+
+func TestPercentFormattedNumbers(t *testing.T) {
+	num := func(v float64) *grid.Cell {
+		return &grid.Cell{Kind: grid.Number, Num: &v, Raw: fmt.Sprint(v), PctFmt: true}
+	}
+	in := Input{Sheet: "S", Name: "growth", Header: "Growth", Col: 1, Rows: []int{1, 2, 3},
+		Cells: []*grid.Cell{num(0.12), num(0.05), num(0.125)}}
+	res := Column(in, Options{})
+	if !res.Pct || res.Unit != "%" || res.Type.Base != Decimal {
+		t.Fatalf("pct %v unit %q type %v", res.Pct, res.Unit, res.Type)
+	}
+	want := []any{normalize.Decimal("12"), normalize.Decimal("5"), normalize.Decimal("12.5")}
+	if !reflect.DeepEqual(res.Values, want) {
+		t.Fatalf("values %v", res.Values)
+	}
+	if len(res.Decisions) != 1 || !strings.Contains(res.Decisions[0].Reason, "percent number format") {
+		t.Fatalf("decisions %+v", res.Decisions)
 	}
 }

@@ -39,7 +39,7 @@ func XLSX(r io.Reader, opts Options) ([]*grid.Grid, error) {
 	if p, err := f.GetWorkbookProps(); err == nil && p.Date1904 != nil {
 		date1904 = *p.Date1904
 	}
-	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, dateStyles: map[int]bool{}}
+	x := &xlsxReader{f: f, maxRows: opts.MaxRows, maxCells: opts.MaxCells, styles: map[int]numFmt{}}
 	grids := make([]*grid.Grid, 0, len(names))
 	for _, name := range names {
 		g, err := x.sheet(name)
@@ -98,10 +98,10 @@ func noVisibleSheets(f *excelize.File) error {
 }
 
 type xlsxReader struct {
-	f          *excelize.File
-	maxRows    int
-	maxCells   int64
-	dateStyles map[int]bool // style id → number format is a date/time
+	f        *excelize.File
+	maxRows  int
+	maxCells int64
+	styles   map[int]numFmt // style id → kind of number format
 }
 
 // rawRow is one row as excelize reads it: its width (gaps padded with "")
@@ -483,57 +483,84 @@ func (x *xlsxReader) number(sheet, ref, raw string) (grid.Cell, error) {
 		return grid.Cell{Kind: grid.String, Raw: raw}, nil
 	}
 	cell := grid.Cell{Kind: grid.Number, Raw: formatNumber(v), Num: &v}
-	isDate, err := x.dateStyle(sheet, ref)
+	kind, err := x.style(sheet, ref)
 	if err != nil {
 		return grid.Cell{}, err
 	}
-	if isDate {
+	switch kind {
+	case fmtDate:
 		cell.Kind, cell.DateFmt = grid.Date, true
+	case fmtPct:
+		cell.PctFmt = true
 	}
 	return cell, nil
 }
 
-// dateStyle reports whether the cell's number format is a date/time format.
-// Results are cached per style id.
-func (x *xlsxReader) dateStyle(sheet, ref string) (bool, error) {
+// numFmt is the kind of a number format.
+type numFmt uint8
+
+const (
+	fmtPlain numFmt = iota
+	fmtDate         // shows a calendar date (possibly with a time)
+	fmtPct          // shows a percentage
+)
+
+// style classifies the cell's number format. Results are cached per style id.
+func (x *xlsxReader) style(sheet, ref string) (numFmt, error) {
 	id, err := x.f.GetCellStyle(sheet, ref)
 	if err != nil {
-		return false, cellError(sheet, ref, err)
+		return fmtPlain, cellError(sheet, ref, err)
 	}
-	if v, ok := x.dateStyles[id]; ok {
+	if v, ok := x.styles[id]; ok {
 		return v, nil
 	}
-	v := false
+	v := fmtPlain
 	if st, err := x.f.GetStyle(id); err == nil && st != nil {
 		if st.CustomNumFmt != nil {
-			v = isDateFormat(*st.CustomNumFmt)
+			v = formatKind(*st.CustomNumFmt)
 		} else {
-			v = isBuiltinDateFormat(st.NumFmt)
+			v = builtinKind(st.NumFmt)
 		}
 	}
-	x.dateStyles[id] = v
+	x.styles[id] = v
 	return v, nil
 }
 
-// isBuiltinDateFormat reports whether a built-in number format id is a date or
-// time format (including the locale-specific CJK and Thai ids).
-func isBuiltinDateFormat(id int) bool {
-	return 14 <= id && id <= 22 || 27 <= id && id <= 36 || 45 <= id && id <= 47 ||
-		50 <= id && id <= 58 || 71 <= id && id <= 81
+// builtinKind classifies a built-in number format id. Time-only ids
+// (h:mm, mm:ss, [h]:mm:ss and their CJK and Thai variants) are not dates.
+func builtinKind(id int) numFmt {
+	switch {
+	case id == 9 || id == 10:
+		return fmtPct
+	case 14 <= id && id <= 17, id == 22, 27 <= id && id <= 31, id == 36,
+		50 <= id && id <= 54, 57 <= id && id <= 58, 71 <= id && id <= 74, id == 77, id == 81:
+		return fmtDate
+	}
+	return fmtPlain
 }
 
-// isDateFormat reports whether a custom number format code displays a date or
-// time. It looks for y/m/d/h/s tokens, AM/PM, or an elapsed-time bracket such
-// as [h] outside quoted literals, escaped or padding characters, and other
-// bracketed sections ([Red], [$-409], [>=100]).
-func isDateFormat(code string) bool {
+// isBuiltinDateFormat reports whether a built-in number format id shows a date.
+func isBuiltinDateFormat(id int) bool { return builtinKind(id) == fmtDate }
+
+// isDateFormat reports whether a custom number format code shows a date.
+func isDateFormat(code string) bool { return formatKind(code) == fmtDate }
+
+// formatKind classifies a custom number format code. It reads the y/m/d/h/s
+// tokens outside quoted literals, escapes, padding, and bracketed sections
+// ([Red], [$-409], [>=100]). A format is a date when it has a year, a day,
+// or a month ("m" not next to an hour or second, where it means minutes);
+// time-only and elapsed formats (h:mm AM/PM, [h]:mm) are not. A format with
+// an unquoted "%" and no date tokens is a percentage.
+func formatKind(code string) numFmt {
 	s := strings.ToLower(code)
+	var toks []byte
+	pct := false
 	for i := 0; i < len(s); i++ {
-		switch s[i] {
+		switch c := s[i]; c {
 		case '"':
 			j := strings.IndexByte(s[i+1:], '"')
 			if j < 0 {
-				return false
+				return fmtPlain
 			}
 			i += j + 1
 		case '\\', '_', '*':
@@ -541,21 +568,48 @@ func isDateFormat(code string) bool {
 		case '[':
 			j := strings.IndexByte(s[i+1:], ']')
 			if j < 0 {
-				return false
+				return fmtPlain
 			}
 			if isElapsed(s[i+1 : i+1+j]) {
-				return true
+				toks = append(toks, 'h')
 			}
 			i += j + 1
-		case 'y', 'm', 'd', 'h', 's':
-			return true
+		case '%':
+			pct = true
 		case 'a':
-			if strings.HasPrefix(s[i:], "am/pm") || strings.HasPrefix(s[i:], "a/p") {
-				return true
+			switch {
+			case strings.HasPrefix(s[i:], "am/pm"):
+				i += 4
+			case strings.HasPrefix(s[i:], "a/p"):
+				i += 2
+			}
+		case 'y', 'm', 'd', 'h', 's':
+			for i+1 < len(s) && s[i+1] == c {
+				i++
+			}
+			toks = append(toks, c)
+		case 'b':
+			if i+1 < len(s) && s[i+1] == 'b' { // Buddhist-era year
+				toks = append(toks, 'y')
+				i++
 			}
 		}
 	}
-	return false
+	for i, t := range toks {
+		switch t {
+		case 'y', 'd':
+			return fmtDate
+		case 'm':
+			minutes := (i > 0 && toks[i-1] == 'h') || (i+1 < len(toks) && toks[i+1] == 's')
+			if !minutes {
+				return fmtDate
+			}
+		}
+	}
+	if pct {
+		return fmtPct
+	}
+	return fmtPlain
 }
 
 // isElapsed reports whether bracket content is an elapsed-time token: [h],

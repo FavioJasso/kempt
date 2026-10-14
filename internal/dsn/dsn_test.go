@@ -348,3 +348,22 @@ func TestDescribe(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactPasswordWithAtAndSlash(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"postgres://kempt:p@ss/w0rd@localhost:5432/kempt", "postgres://kempt:****@localhost:5432/kempt"},
+		{"postgres://u:pw@host/db?opt=a@b", "postgres://u:****@host/db?opt=a@b"},
+		{"mysql://root:a/b@c@127.0.0.1:3306/db", "mysql://root:****@127.0.0.1:3306/db"},
+	}
+	for _, tt := range tests {
+		got := Redact(tt.in)
+		if got != tt.want {
+			t.Errorf("Redact(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+		for _, secret := range []string{"p@ss", "w0rd", "a/b@c"} {
+			if strings.Contains(tt.in, secret) && strings.Contains(got, secret) {
+				t.Errorf("Redact(%q) leaks %q: %q", tt.in, secret, got)
+			}
+		}
+	}
+}

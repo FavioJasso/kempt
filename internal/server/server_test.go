@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/xuri/excelize/v2"
 
 	"github.com/FavioJasso/kempt/internal/dsn"
 )
@@ -337,5 +340,56 @@ func TestPostgresLoadQuery(t *testing.T) {
 	}
 	if status, _ := query("SELECT 1"); status != http.StatusNotFound {
 		t.Fatalf("query after sweep status %d", status)
+	}
+}
+
+func TestDemoRowLimitAcrossSheets(t *testing.T) {
+	ts := newTestServer(t, Config{Demo: true})
+	f := excelize.NewFile()
+	for i := 0; i < 3; i++ {
+		name := fmt.Sprintf("S%d", i)
+		if i == 0 {
+			f.SetSheetName("Sheet1", name)
+		} else {
+			f.NewSheet(name)
+		}
+		sw, err := f.NewStreamWriter(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sw.SetRow("A1", []any{"id", "v"})
+		for r := 2; r <= 20_000; r++ {
+			cell, _ := excelize.CoordinatesToCellName(1, r)
+			sw.SetRow(cell, []any{r, r * 2})
+		}
+		sw.Flush()
+	}
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, ct := form(t, "multi.xlsx", map[string]string{"file": buf.String()})
+	if status, out := post(t, ts.URL+"/api/inspect", ct, body); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d: %v", status, out)
+	}
+}
+
+func TestRateLimitIgnoresSpoofedXFF(t *testing.T) {
+	ts := newTestServer(t, Config{Demo: true})
+	var last int
+	for i := 0; i < demoRate+1; i++ {
+		body, ct := form(t, "", map[string]string{"sample": "tidy.csv"})
+		req, _ := http.NewRequest("POST", ts.URL+"/api/inspect", body)
+		req.Header.Set("Content-Type", ct)
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("203.0.113.%d", i))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		last = res.StatusCode
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("spoofed X-Forwarded-For bypassed the limit: last status %d", last)
 	}
 }

@@ -237,11 +237,14 @@ func sqliteLike(s string) bool {
 // "/", "?", or "#". A password holding one of those unescaped pushes the
 // "@" further right, so fall back to the last "@" anywhere.
 func redactUserinfo(rest string) string {
-	auth := rest
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		auth = rest[:i]
+	// A password may hold unescaped "@" or "/" ("p@ss/w0rd"), so the user
+	// info ends at the last "@" before the query string. That hides too much
+	// rather than too little when a path itself holds an "@".
+	head := rest
+	if i := strings.IndexByte(rest, '?'); i >= 0 {
+		head = rest[:i]
 	}
-	at := strings.LastIndex(auth, "@")
+	at := strings.LastIndex(head, "@")
 	if at < 0 {
 		at = strings.LastIndex(rest, "@")
 	}

@@ -44,6 +44,9 @@ var Dialects = []string{Postgres, MySQL, SQLite}
 // MaxPrecision is the largest NUMERIC precision kempt emits.
 const MaxPrecision = 38
 
+// MySQLMaxScale is the most digits after the point a MySQL DECIMAL allows.
+const MySQLMaxScale = 30
+
 // SQLiteExactDigits is the most significant digits a decimal can have and
 // still survive SQLite's NUMERIC affinity, which stores it as a REAL.
 const SQLiteExactDigits = 15
@@ -76,6 +79,9 @@ func (t Type) SQL(dialect string) string {
 		case BigInt:
 			return "BIGINT"
 		case Decimal:
+			if t.Scale > MySQLMaxScale {
+				return "TEXT" // MySQL DECIMAL allows at most 30 digits after the point
+			}
 			return fmt.Sprintf("DECIMAL(%d,%d)", t.Precision, t.Scale)
 		case Date:
 			return "DATE"
@@ -121,9 +127,16 @@ func (t Type) SQL(dialect string) string {
 }
 
 // mysqlText sizes a MySQL text column: VARCHAR(n) with n the next power of
-// two at or above the longest value, capped at 1024; TEXT beyond that.
+// two at or above the longest value, capped at 1024; beyond that the
+// smallest TEXT type that holds the longest value in utf8mb4 (up to 4 bytes
+// per character): TEXT (64 KB), MEDIUMTEXT (16 MB), or LONGTEXT.
 func mysqlText(maxLen int) string {
-	if maxLen > 1024 {
+	switch {
+	case maxLen > (16<<20-1)/4:
+		return "LONGTEXT"
+	case maxLen > (64<<10-1)/4:
+		return "MEDIUMTEXT"
+	case maxLen > 1024:
 		return "TEXT"
 	}
 	n := 1

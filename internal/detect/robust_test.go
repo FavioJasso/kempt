@@ -240,3 +240,50 @@ func TestNoteUnderHeader(t *testing.T) {
 		t.Fatalf("data %v decisions %v", plus1(rg.Data), kinds(rg.Decisions))
 	}
 }
+
+// Labels that only end like a total need a sum to be dropped.
+func TestTailTotalsNeedProof(t *testing.T) {
+	g := csvGrid(t, "metric,value", "Page views,1200", "Unique visitors,640", "Order total,385", "Refunds,12", "Cart subtotal,410")
+	if rg := Detect(g, Options{}).Regions[0]; len(rg.Data) != 5 {
+		t.Fatalf("data %v", plus1(rg.Data))
+	}
+	g = csvGrid(t, "Item,Amount", "Pens,10", "Ink,5", "Office total,15")
+	if rg := Detect(g, Options{}).Regions[0]; len(rg.Data) != 2 || len(rg.Totals) != 1 {
+		t.Fatalf("proven tail total: data %v totals %v", plus1(rg.Data), plus1(rg.Totals))
+	}
+}
+
+// --skip-rows alone does not turn the first data row into a sub-header.
+func TestSkipRowsKeepsFirstDataRow(t *testing.T) {
+	g := csvGrid(t, "Regional sales export,,", "Region,Sales,", "North,10,note1", "South,20,note2", "East,30,note3")
+	rg := Detect(g, Options{SkipRows: 1}).Regions[0]
+	if !reflect.DeepEqual(plus1(rg.Header), []int{2}) || len(rg.Data) != 3 {
+		t.Fatalf("header %v data %v", plus1(rg.Header), plus1(rg.Data))
+	}
+}
+
+// --header-rows 1 keeps the sub-header row, not the group row above it.
+func TestHeaderRowsEndsAtBestRow(t *testing.T) {
+	g := mk(t, [][]any{
+		{"Dept", "FY2025", "", "Notes"},
+		{"", "Budget", "Actual", ""},
+		{"Parks", 10, 11, "x"},
+		{"Roads", 20, 21, "y"},
+	}, "A1:A2", "B1:C1", "D1:D2")
+	rg := Detect(g, Options{HeaderRows: 1}).Regions[0]
+	if !reflect.DeepEqual(plus1(rg.Header), []int{2}) || len(rg.Data) != 2 {
+		t.Fatalf("header %v data %v", plus1(rg.Header), plus1(rg.Data))
+	}
+}
+
+// A lone title (not at the left edge) or a title plus a date above the
+// header is not a group row.
+func TestTitlesAboveHeaderAreNotGroups(t *testing.T) {
+	for _, first := range []string{",,Annual Sales Report 2026,,,", "Quarterly Report,,,,Prepared 2026-03-01,"} {
+		g := csvGrid(t, first, "Region,Rep,Q1,Q2,Q3,Q4", "North,Ann,1,2,3,4", "South,Bo,5,6,7,8", "East,Cy,9,10,11,12")
+		rg := Detect(g, Options{}).Regions[0]
+		if got := parts(rg); !reflect.DeepEqual(got, []string{"Region", "Rep", "Q1", "Q2", "Q3", "Q4"}) {
+			t.Fatalf("%q: parts %v", first, got)
+		}
+	}
+}

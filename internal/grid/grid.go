@@ -43,7 +43,8 @@ type Cell struct {
 	Kind    Kind     // stored kind
 	Num     *float64 // set when the stored (or cached) value is numeric
 	Merge   *Range   // non-nil when the cell is part of a merged range
-	DateFmt bool     // the cell's number format is a date/time format
+	DateFmt bool     // the cell's number format shows a date (time-only formats do not count)
+	PctFmt  bool     // the cell's number format shows a percentage (0.12 displays as 12%)
 	Formula string   // formula text without the leading "=", when Kind == Formula
 }
 

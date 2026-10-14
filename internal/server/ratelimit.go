@@ -68,14 +68,18 @@ func (l *limiter) gc(now time.Time) {
 	l.lastGC = now
 }
 
-// clientIP returns the address used for rate limiting. Behind a reverse
-// proxy (Railway, Fly, nginx) the proxy appends the real client to
-// X-Forwarded-For, so the right-most entry is the one it vouches for.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
-			return ip
+// clientIP returns the address used for rate limiting. X-Forwarded-For is
+// honored only behind a trusted reverse proxy (Railway, Fly, nginx): the
+// proxy appends the real client to it, so the right-most entry across every
+// X-Forwarded-For line is the one it vouches for. Otherwise a client could
+// reset its bucket by sending a different header on each request.
+func clientIP(r *http.Request, trustProxy bool) string {
+	if trustProxy {
+		if xff := strings.Join(r.Header.Values("X-Forwarded-For"), ","); xff != "" {
+			parts := strings.Split(xff, ",")
+			if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
+				return ip
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

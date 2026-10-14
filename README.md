@@ -100,9 +100,10 @@ Preview (first 4 of 7 rows; ∅ = NULL):
 - **Header scoring.** Each candidate row is scored on how filled, textual and unique it is, and on how much more numeric the rows below it are.
 - **Multi-row headers.** Group labels such as `FY2025` merged over `Budget | Actual` become `fy2025_budget` and `fy2025_actual`.
 - **Units.** `($000s)`, `(USD)`, `(%)`, `[kWh]`, and `in thousands` move from the name into a column comment. Values are never rescaled.
-- **Totals.** Rows labeled `Total`, `Subtotal`, `Grand total`, `Sum` or `All ...` are dropped. Confidence rises to 0.97 when a cell equals the sum of the rows above it.
-- **Footers.** Trailing `Source:`, `Note:`, `*`, `†`, `¹` and `Prepared by` rows are dropped.
+- **Totals.** A row labeled `Total`, `Subtotal`, `Grand total`, `Sum` or `All ...` is dropped when one of its numbers equals the sum of the rows above it (confidence 0.97), or when the label is the row's only text. A row like `Total Wine & More | Catering | 340` is kept and logged.
+- **Footers.** The trailing run of `Source:`, `Note:`, `*`, `†`, `¹` and `Prepared by` rows is dropped.
 - **Merged cells.** Vertically merged categories are filled down into every row they cover.
+- **No header?** When no row reads as a header (its values have the same types as the rows below it), every row is kept and the columns are named `col_a`, `col_b`, …
 
 **Normalization** turns display formatting into types:
 
@@ -115,6 +116,8 @@ Preview (first 4 of 7 rows; ∅ = NULL):
 | `#DIV/0!`, `#N/A`, `#VALUE!`, `#REF!` | `NULL` (logged as Excel errors) |
 | Excel serial dates, `2026-03-15`, `03/15/2026`, `3/15/26`, `Mar 15, 2026`, `15-Mar-2026` | `DATE` / `TIMESTAMP` |
 | `02134`, `007` | kept as text, so leading zeros survive |
+
+**Column names** are lowercase snake_case. Accents are transliterated, and `%`, `#` and `&` become `pct`, `num` and `and`. camelCase is split (`OrderID` → `order_id`), and a leading digit gets a `c_` prefix (`2025 Revenue` → `c_2025_revenue`). Blank headers become `col_<letter>`, and duplicates get `_2`, `_3`. The original header text is kept as the column comment.
 
 Each column gets the narrowest type that parses every non-null value, in the order `bool → int → bigint → decimal(p,s) → date → timestamp → text`. Decimal precision and scale are measured from the data. In MySQL, text becomes `VARCHAR(n)` sized to the next power of two, or `TEXT` beyond 1024.
 
@@ -209,6 +212,14 @@ They are excellent, and if your file is already a tidy table you should use them
 | `POST /api/query` | `{"schema", "sql"}` → at most 100 rows; one read-only statement, 2 s timeout |
 
 Uploads are processed in memory and never written to disk. Each demo schema gets its own LOGIN role, which can only read that schema, and queries run as that role inside a `READ ONLY` transaction. The server's own database privileges are never exposed to the SQL console.
+
+| Variable | |
+|---|---|
+| `PORT` | listen port (default 8080; `--addr` overrides) |
+| `DATABASE_URL` (or `KEMPT_DSN`, `DATABASE_PUBLIC_URL`) | Postgres for **Load** and **Query** |
+| `KEMPT_DEMO=1` | public-demo limits (below) |
+| `KEMPT_SECRET` | derives the per-schema query passwords; set it so loaded schemas stay queryable across restarts |
+| `KEMPT_TRUST_PROXY=1` | rate-limit by `X-Forwarded-For` (on automatically on Railway); leave it off when clients connect directly |
 
 Set `KEMPT_DEMO=1` for a public deployment. It caps uploads at 5 MB and 50,000 rows and allows 10 requests per minute per IP. It also drops `demo_*` schemas, and their roles, after an hour.
 

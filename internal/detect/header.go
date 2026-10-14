@@ -107,43 +107,49 @@ func (s *sheet) findHeader(rows []int, c1, c2 int, opts Options, forced bool) he
 	return hr
 }
 
-// forcedHeader applies --skip-rows / --header-rows.
+// forcedHeader applies --skip-rows / --header-rows. --skip-rows fixes
+// where the header starts; --header-rows fixes its height, counted up from
+// the row detection scored best (so the sub-header row is kept).
 func (s *sheet) forcedHeader(rows []int, c1, c2 int, opts Options, forced bool) headerResult {
-	var top int
+	n := opts.HeaderRows
+	var header []int
 	var why string
 	if forced {
-		top = rows[0]
+		top := rows[0]
 		why = fmt.Sprintf("--skip-rows %d puts the header at row %d", opts.SkipRows, top+1)
+		if n <= 0 {
+			n = 1
+			if len(rows) > 2 && rows[1] == top+1 && s.stats(top+1, c1, c2).textFrac() >= 0.8 && s.groupRow(top, top+1, c1, c2) != nil {
+				n = 2
+			}
+			why += "; its height was detected"
+		} else {
+			why += fmt.Sprintf("; --header-rows %d sets its height", n)
+		}
+		header = rows[:min(n, len(rows)-1)]
 	} else {
-		pick, ok := s.pickHeader(rows, c1, c2)
-		if pick.row < 0 {
-			return headerResult{group: -1, units: -1}
+		auto := s.findHeader(rows, c1, c2, Options{}, false)
+		leaf := rows[0]
+		if len(auto.rows) > 0 {
+			leaf = auto.rows[len(auto.rows)-1]
+			if auto.units >= 0 {
+				leaf = auto.rows[len(auto.rows)-2]
+			}
 		}
-		top = pick.row
-		if a := top - 1; ok && slices.Contains(rows, a) && s.groupRow(a, top, c1, c2) != nil {
-			top = a
-		}
-		why = fmt.Sprintf("the header starts at row %d, where detection found it", top+1)
+		i := slices.Index(rows, leaf)
+		start := max(0, i-n+1)
+		end := min(start+n, len(rows)-1)
+		header = rows[start:end]
+		why = fmt.Sprintf("--header-rows %d sets its height, ending at row %d, which detection scored as the header", n, leaf+1)
 	}
-	i := slices.Index(rows, top)
-	n := opts.HeaderRows
-	if n > 0 {
-		why += fmt.Sprintf("; --header-rows %d sets its height", n)
-	} else {
-		n = 1
-		if i+1 < len(rows) && rows[i+1] == top+1 && s.groupRow(top, top+1, c1, c2) != nil {
-			n = 2
-		}
-		why += "; its height was detected"
+	if len(header) == 0 {
+		return headerResult{group: -1, units: -1}
 	}
-	if i+n >= len(rows) {
-		n = max(len(rows)-1-i, 1)
+	hr := headerResult{rows: header, group: -1, units: -1, conf: 1}
+	if len(header) >= 2 && s.groupRow(header[len(header)-2], header[len(header)-1], c1, c2) != nil {
+		hr.group = header[len(header)-2]
 	}
-	hr := headerResult{rows: rows[i : i+n], group: -1, units: -1, conf: 1}
-	if len(hr.rows) >= 2 && s.groupRow(hr.rows[len(hr.rows)-2], hr.rows[len(hr.rows)-1], c1, c2) != nil {
-		hr.group = hr.rows[len(hr.rows)-2]
-	}
-	hr.reason = fmt.Sprintf("Header is %s: %s.", rowsText(hr.rows), why)
+	hr.reason = fmt.Sprintf("Header is %s: %s.", rowsText(header), why)
 	return hr
 }
 

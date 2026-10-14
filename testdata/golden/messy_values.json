@@ -605,7 +605,7 @@
             {
               "kind": "percent",
               "range": "Orders!F2:F13",
-              "reason": "Every value in column discount_pct carried a % sign; values are stored as written (12% is stored as 12, not divided by 100) and the column is suffixed _pct: F2 (\"12%\" → 12), F3 (\"5%\" → 5), F4 (\"0%\" → 0), F6 (\"15%\" → 15), F7 (\"10%\" → 10) and 6 more.",
+              "reason": "Every value in column discount_pct is a percentage; values are stored as shown (12% is stored as 12, not divided by 100) and the column is suffixed _pct: F2 (\"12%\" → 12), F3 (\"5%\" → 5), F4 (\"0%\" → 0), F6 (\"15%\" → 15), F7 (\"10%\" → 10) and 6 more.",
               "confidence": 0.9
             },
             {

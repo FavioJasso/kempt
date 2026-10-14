@@ -239,3 +239,32 @@ func b2i(b bool) int {
 	}
 	return 0
 }
+
+// Times100 returns n multiplied by 100, computed on the decimal text so no
+// digits are lost: "0.125" → "12.5". Excel stores 12% as 0.12; this gives
+// back the number the sheet displays.
+func (n Number) Times100() Number {
+	s := string(n.Text)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	ip, fp, _ := strings.Cut(s, ".")
+	for len(fp) < 2 {
+		fp += "0"
+	}
+	ip, fp = strings.TrimLeft(ip+fp[:2], "0"), fp[2:]
+	if ip == "" {
+		ip = "0"
+	}
+	text := ip
+	if fp != "" {
+		text += "." + fp
+	}
+	if neg && text != "0" {
+		text = "-" + text
+	}
+	out := n
+	out.Text = Decimal(text)
+	out.Float = n.Float * 100
+	out.IntDigits, out.Scale = len(ip), len(fp)
+	return out
+}

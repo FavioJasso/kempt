@@ -55,16 +55,17 @@ const (
 
 // entry is one non-null cell and every base it parses as.
 type entry struct {
-	i    int // index into Input.Cells
-	cell *grid.Cell
-	text string // trimmed Raw
-	src  source
-	ok   [Text]bool
-	b    bool
-	num  normalize.Number
-	t    time.Time
-	date normalize.ParsedDate // text dates only
-	hint bool                 // numeric cell read as a serial date because of the header
+	i       int // index into Input.Cells
+	cell    *grid.Cell
+	text    string // trimmed Raw
+	src     source
+	ok      [Text]bool
+	b       bool
+	num     normalize.Number
+	t       time.Time
+	date    normalize.ParsedDate // text dates only
+	hint    bool                 // numeric cell read as a serial date because of the header
+	textInt *float64             // text that is a plain integer (CSV), a serial candidate under the header hint
 
 	tried  [2]bool // ParseDate ran for each normalize.DateOrder
 	parsed [2]normalize.ParsedDate
@@ -148,6 +149,11 @@ func (c *column) classify() {
 			c.tokens = append(c.tokens, i)
 			c.res.Nulls[i] = true
 		case nk == normalize.NotNull:
+			if v, ok := plainInt(e.text); ok && !cell.DateFmt {
+				e.textInt = &v
+				numbers++
+				plausible = plausible && normalize.PlausibleSerial(v)
+			}
 			c.es = append(c.es, e)
 		default: // zero-width spaces or byte-order marks only
 			c.blanks = append(c.blanks, i)
@@ -198,6 +204,11 @@ func (c *column) parse(e *entry) {
 		c.serial(e)
 	case srcNumber:
 		e.num = normalize.NumberFromFloat(*e.cell.Num)
+		if e.cell.PctFmt {
+			// A percent number format shows 0.12 as 12%; store what the sheet shows.
+			e.num = e.num.Times100()
+			e.num.Percent = true
+		}
 		if c.hint {
 			e.hint = true
 			c.serial(e)
@@ -207,6 +218,12 @@ func (c *column) parse(e *entry) {
 	default:
 		if e.cell.Kind == grid.Bool {
 			e.b, e.ok[Bool] = boolCell(e.text)
+			return
+		}
+		if c.hint && e.textInt != nil {
+			// Integer text under a date header, as CSV exports write Excel serials.
+			e.hint = true
+			c.serialAt(e, *e.textInt)
 			return
 		}
 		e.b, e.ok[Bool] = normalize.ParseBool(e.text)
@@ -227,8 +244,10 @@ func (c *column) parse(e *entry) {
 	}
 }
 
-func (c *column) serial(e *entry) {
-	if t, hasTime, ok := normalize.ExcelSerial(*e.cell.Num, c.opts.Date1904); ok {
+func (c *column) serial(e *entry) { c.serialAt(e, *e.cell.Num) }
+
+func (c *column) serialAt(e *entry, v float64) {
+	if t, hasTime, ok := normalize.ExcelSerial(v, c.opts.Date1904); ok {
 		e.t = t
 		e.ok[Date], e.ok[Timestamp] = !hasTime, true
 	}
@@ -240,6 +259,16 @@ func (e *entry) numeric() {
 		e.ok[Int] = v >= math.MinInt32 && v <= math.MaxInt32
 	}
 	e.ok[Decimal] = e.num.IntDigits+e.num.Scale <= MaxPrecision
+}
+
+// plainInt parses text written as a bare integer ("46100"): no sign
+// variations beyond "-", no separators, currency, or percent.
+func plainInt(s string) (float64, bool) {
+	n, ok := normalize.ParseNumber(s)
+	if !ok || !n.IsInt() || n.Grouped || n.Currency != "" || n.Percent || n.Accounting || n.TrailingMinus {
+		return 0, false
+	}
+	return n.Float, true
 }
 
 // bareExponent reports whether text uses exponent notation with neither a
@@ -472,17 +501,28 @@ func (c *column) numberDecisions(cast []*entry) {
 			"Read %s in column %s as negative because %s accounting style (parentheses or a trailing minus): %s.",
 			count(len(neg), "value"), c.name(), plural(len(neg), "it is written in", "they are written in"), c.examples(neg, true)))
 	}
+	fromFmt := 0
+	for _, i := range pct {
+		if c.in.Cells[i].PctFmt {
+			fromFmt++
+		}
+	}
+	fmtNote := ""
+	if fromFmt > 0 {
+		fmtNote = fmt.Sprintf(" %s a percent number format, so the stored fraction is multiplied by 100 to match what the sheet shows (0.12 displays as 12%%).",
+			plural(fromFmt, "1 value uses", fmt.Sprintf("%d values use", fromFmt)))
+	}
 	switch {
 	case len(pct) == 0:
 	case len(pct) == len(cast):
 		c.res.Pct, c.res.Unit = true, "%"
 		c.add(grid.KPercent, pct, 0.9, fmt.Sprintf(
-			"Every value in column %s carried a %% sign; values are stored as written (12%% is stored as 12, not divided by 100) and the column is suffixed _pct: %s.",
-			c.name(), c.examples(pct, true)))
+			"Every value in column %s is a percentage; values are stored as shown (12%% is stored as 12, not divided by 100) and the column is suffixed _pct: %s.%s",
+			c.name(), c.examples(pct, true), fmtNote))
 	default:
 		c.add(grid.KPercent, pct, 0.5, fmt.Sprintf(
-			"Only %d of %d values in column %s carried a %% sign; percentages are stored as written (12%% is stored as 12, not divided by 100), and the column is not suffixed _pct because the values are mixed: %s.",
-			len(pct), len(cast), c.name(), c.examples(pct, true)))
+			"Only %d of %d values in column %s are percentages; they are stored as shown (12%% is stored as 12, not divided by 100), and the column is not suffixed _pct because the values are mixed: %s.%s",
+			len(pct), len(cast), c.name(), c.examples(pct, true), fmtNote))
 	}
 }
 

@@ -272,3 +272,19 @@ func TestNumberInt64(t *testing.T) {
 		}
 	}
 }
+
+func TestTimes100(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"0.12", "12"}, {"0.125", "12.5"}, {"1.5", "150"}, {"0", "0"}, {"-0.05", "-5"},
+		{"12", "1200"}, {"0.001", "0.1"}, {"-0.0001", "-0.01"}, {"3.14159", "314.159"}, {"0.1", "10"},
+	}
+	for _, tt := range tests {
+		n, ok := ParseNumber(tt.in)
+		if !ok {
+			t.Fatalf("ParseNumber(%q) failed", tt.in)
+		}
+		if got := n.Times100(); string(got.Text) != tt.want {
+			t.Errorf("Times100(%q) = %q, want %q", tt.in, got.Text, tt.want)
+		}
+	}
+}

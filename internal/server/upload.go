@@ -199,6 +199,15 @@ func (s *Server) analyze(up *upload) ([]*plan.Sheet, error) {
 		}
 		return nil, badRequest("could not read %s: %v", up.name, err)
 	}
+	if s.maxRows > 0 {
+		total := 0
+		for _, g := range grids {
+			total += g.Rows
+		}
+		if total > s.maxRows {
+			return nil, &httpError{http.StatusRequestEntityTooLarge, fmt.Sprintf("the workbook has %d rows across its sheets; this server accepts at most %d", total, s.maxRows)}
+		}
+	}
 	sheets := make([]*plan.Sheet, 0, len(grids))
 	for _, g := range grids {
 		sheets = append(sheets, plan.Build(g, up.opts))

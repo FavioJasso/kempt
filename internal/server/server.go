@@ -45,6 +45,9 @@ type Config struct {
 	Samples fs.FS       // sample spreadsheets offered by /api/samples
 	Version string
 	Logger  *slog.Logger
+	// TrustProxy makes the rate limiter key on X-Forwarded-For, which only a
+	// trusted reverse proxy in front of the server can vouch for.
+	TrustProxy bool
 	// Secret derives per-schema passwords for query roles. Empty means a
 	// random secret per process (schemas become unqueryable after restart).
 	Secret []byte
@@ -159,7 +162,7 @@ func (s *Server) routes() http.Handler {
 func (s *Server) limited(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.limiter != nil {
-			if ok, wait := s.limiter.allow(clientIP(r)); !ok {
+			if ok, wait := s.limiter.allow(clientIP(r, s.cfg.TrustProxy)); !ok {
 				w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
 				writeError(w, http.StatusTooManyRequests, "rate limit: the public demo allows 10 requests per minute; try again shortly")
 				return

@@ -235,9 +235,9 @@ func PlausibleSerial(v float64) bool { return v >= 20000 && v <= 80000 }
 // DateHint reports whether a column header suggests dates: it contains
 // "date", "day", "month", or "period" (case-insensitive).
 func DateHint(header string) bool {
-	h := strings.ToLower(header)
-	for _, w := range []string{"date", "day", "month", "period"} {
-		if strings.Contains(h, w) {
+	for _, w := range strings.Split(SnakeCase(header), "_") {
+		switch w {
+		case "date", "dates", "day", "days", "month", "months", "period", "periods", "dt":
 			return true
 		}
 	}
