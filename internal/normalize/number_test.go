@@ -123,6 +123,15 @@ func TestParseNumber(t *testing.T) {
 		{"N/A", false, "", 0, flags{}},
 		{"#DIV/0!", false, "", 0, flags{}},
 		{"3/15/2026", false, "", 0, flags{}},
+		{"$-", false, "", 0, flags{}},
+		{"$ -", false, "", 0, flags{}},
+		{"\u20135", false, "", 0, flags{}},
+		{"\u20145", false, "", 0, flags{}},
+		{"(\u22125)", false, "", 0, flags{}},
+		{"5\u2212", true, "-5", 0, flags{trail: true}},
+		{"\u00a0$\u00a012\u00a0", true, "12", 0, flags{cur: "$"}},
+		{"(1,23)", false, "", 0, flags{}},
+		{"12345678901234567890123456789012345678901", true, "12345678901234567890123456789012345678901", 0, flags{}},
 		{"USD 5", false, "", 0, flags{}},
 	}
 	for _, tc := range tests {
@@ -156,6 +165,37 @@ func checkDerived(t *testing.T, in string, n Number) {
 	want, _ := strconv.ParseFloat(string(n.Text), 64)
 	if n.Float != want {
 		t.Errorf("%q: Float = %v, want %v", in, n.Float, want)
+	}
+}
+
+func TestParseNumberDigits(t *testing.T) {
+	tests := []struct {
+		in                string
+		intDigits, scale  int
+		wantInt64, fitInt bool
+	}{
+		{"0.25", 1, 2, false, false},
+		{"1234.5", 4, 1, false, false},
+		{".5", 1, 1, false, false},
+		{"5.", 1, 0, true, true},
+		{"-0", 1, 0, true, true},
+		{"9223372036854775807", 19, 0, true, true},
+		{"9223372036854775808", 19, 0, true, false},
+		{"1E+400", 401, 0, true, false},
+		{"1e-5", 1, 5, false, false},
+		{"(1,234,567.890)", 7, 3, false, false},
+	}
+	for _, tc := range tests {
+		n, ok := ParseNumber(tc.in)
+		if !ok {
+			t.Errorf("ParseNumber(%q) failed", tc.in)
+			continue
+		}
+		_, fits := n.Int64()
+		if n.IntDigits != tc.intDigits || n.Scale != tc.scale || n.IsInt() != tc.wantInt64 || fits != tc.fitInt {
+			t.Errorf("ParseNumber(%q) = IntDigits %d, Scale %d, IsInt %v, Int64 ok %v; want %d, %d, %v, %v",
+				tc.in, n.IntDigits, n.Scale, n.IsInt(), fits, tc.intDigits, tc.scale, tc.wantInt64, tc.fitInt)
+		}
 	}
 }
 

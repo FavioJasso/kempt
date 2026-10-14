@@ -36,6 +36,10 @@ func TestSnakeCase(t *testing.T) {
 		{"日本", ""},
 		{"$", ""},
 		{"Department\nName", "department_name"},
+		{"\ufb01le Size", "file_size"},
+		{"Area (m\u00b2)", "area_m2"},
+		{"\uff21\uff22\uff23 Total", "abc_total"},
+		{"Growth \uff05", "growth_pct"},
 	}
 	for _, tc := range tests {
 		if got := SnakeCase(tc.in); got != tc.want {

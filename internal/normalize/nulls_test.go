@@ -44,6 +44,11 @@ func TestClassifyNull(t *testing.T) {
 		{"#DIV/0", NotNull},
 		{"Nashville", NotNull},
 		{"see note", NotNull},
+		{"$-", NotNull},
+		{"\u2212", NotNull},
+		{"-5", NotNull},
+		{"\u00a0\u2014\u00a0", NullToken},
+		{"\u200b", NullEmpty},
 	}
 	for _, tc := range tests {
 		if got := ClassifyNull(tc.in); got != tc.want {
